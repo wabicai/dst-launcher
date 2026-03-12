@@ -1,0 +1,17 @@
+appId: com.dstlauncher.app
+productName: DST Launcher
+extraMetadata:
+  name: dst-launcher
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: ../web/out
+    to: web
+  - from: ../sidecar/dist
+    to: sidecar
+mac:
+  icon: assets/icon.icns
+  target:
+    - dir
+    - dmg

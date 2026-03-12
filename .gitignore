@@ -1,0 +1,10 @@
+node_modules
+.next
+dist
+out
+release
+coverage
+*.log
+.DS_Store
+.tmp
+apps/sidecar/.data

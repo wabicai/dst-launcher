@@ -1,0 +1,30 @@
+{
+  "name": "@dst-launcher/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "DST Launcher 桌面壳与分发构建",
+  "author": "wabicai <kaisheng.cai@onekey.so>",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsup src/main.ts src/preload.ts --format cjs --target node22 --platform node --out-dir dist --external electron --external tsx --clean",
+    "build:icon": "swift ./scripts/generate-icon.swift",
+    "build:watch": "tsup src/main.ts src/preload.ts --format cjs --target node22 --platform node --out-dir dist --external electron --external tsx --watch",
+    "dev": "concurrently --kill-others-on-fail --names BUILD,ELECTRON --prefix '[{name}]' --prefix-colors green,blue \"pnpm run build:watch\" \"bash -lc 'wait-on dist/main.js tcp:${NEXT_DEV_SERVER_PORT:-3000} && electronmon dist/main.js'\"",
+    "dist": "pnpm run build:icon && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.yml",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "concurrently": "^9.2.1",
+    "electron": "^37.3.1",
+    "electron-builder": "^26.0.12",
+    "electronmon": "^2.0.2",
+    "get-port": "^7.1.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "wait-on": "^8.0.5"
+  }
+}
