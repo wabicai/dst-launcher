@@ -3,6 +3,8 @@ import path from 'node:path';
 import { statSync } from 'node:fs';
 import {
   ClusterConfigSchema,
+  ModImportRequestSchema,
+  ProjectModsUpdateSchema,
   ProjectConfigUpdateSchema,
   ProjectCreateSchema,
   TargetConfigSchema,
@@ -11,10 +13,15 @@ import {
   renderComposeFile,
   renderConfigPreview,
   type ClusterConfig,
+  type ModImportResult,
+  type ModRecommendationBundle,
+  type ModSearchResponse,
   type ProjectAction,
   type ProjectConfigUpdateInput,
   type ProjectCreateInput,
   type ProjectDetail,
+  type ProjectModsDetail,
+  type ProjectModsUpdateInput,
   type TargetConfig,
 } from '@dst-launcher/shared';
 import { ProjectRepository } from '../db/repository';
@@ -23,12 +30,14 @@ import { resolveInstancePaths, type AppPaths } from '../utils/paths';
 import type { RuntimeAdapter } from '../adapters/base';
 import { LocalDockerAdapter } from '../adapters/local-docker';
 import { SshDockerAdapter } from '../adapters/ssh-docker';
+import { SteamWorkshopProvider } from './steam-workshop-provider';
 
 export class ProjectService {
   constructor(
     private readonly repository: ProjectRepository,
     private readonly eventBus: EventBus,
     private readonly paths: AppPaths,
+    private readonly workshopProvider = new SteamWorkshopProvider(),
   ) {}
 
   async listProjects() {
@@ -72,6 +81,45 @@ export class ProjectService {
     await this.repository.updateProject(projectId, parsed);
     await this.prepareProjectFiles(projectId);
     return this.getProject(projectId);
+  }
+
+  async searchMods(query: string, page = 1): Promise<ModSearchResponse> {
+    const response = await this.workshopProvider.search(query, page);
+    await this.repository.upsertModCacheItems(response.items);
+    return response;
+  }
+
+  async getRecommendations(): Promise<ModRecommendationBundle[]> {
+    const bundles = await this.workshopProvider.getRecommendations();
+    await this.repository.upsertModCacheItems(bundles.flatMap((bundle) => bundle.items));
+    return bundles;
+  }
+
+  async importMods(value: string): Promise<ModImportResult> {
+    const parsed = ModImportRequestSchema.parse({ value });
+    const result = await this.workshopProvider.import(parsed.value);
+    await this.repository.upsertModCacheItems(result.items);
+    return result;
+  }
+
+  async getProjectMods(projectId: string): Promise<ProjectModsDetail> {
+    return await this.repository.getProjectModsDetail(projectId);
+  }
+
+  async updateProjectMods(projectId: string, input: ProjectModsUpdateInput): Promise<ProjectModsDetail> {
+    const parsed = ProjectModsUpdateSchema.parse(input);
+    const cached = await this.repository.getCachedMods(parsed.entries.map((item) => item.workshopId));
+    const cachedIds = new Set(cached.map((item) => item.workshopId));
+    const missingIds = parsed.entries.map((item) => item.workshopId).filter((workshopId) => !cachedIds.has(workshopId));
+
+    if (missingIds.length > 0) {
+      const details = await this.workshopProvider.getPublishedFileDetails(missingIds);
+      await this.repository.upsertModCacheItems(details);
+    }
+
+    await this.repository.replaceProjectModEntries(projectId, parsed.entries);
+    await this.prepareProjectFiles(projectId);
+    return await this.repository.getProjectModsDetail(projectId);
   }
 
   async testTarget(target: TargetConfig) {
@@ -154,6 +202,35 @@ export class ProjectService {
           message = await adapter.ensureFirewall(project.target, ports, project.slug);
           break;
         }
+        case 'prefetch-mods': {
+          const mods = await this.repository.getProjectModsDetail(projectId);
+          if (mods.summary.totalSelected === 0) {
+            message = '当前项目还没有配置模组，无需预拉取。';
+            break;
+          }
+
+          await this.prepareProjectFiles(projectId);
+          await this.syncIfNeeded(project.target, paths.root, adapter);
+          const runtime = await this.getRuntime(project.target, project.slug, paths.composeFile);
+          if (runtime.containers.some((item) => item.state === 'running')) {
+            throw new Error('项目当前正在运行，请先停止服务，再执行模组预拉取。');
+          }
+
+          this.publishTaskProgress(projectId, task.id, action, '开始执行模组预拉取，日志会同步写入工作台。');
+          message = await adapter.prefetchMods(paths.composeFile, project.slug, {
+            onStdout: (line) => {
+              this.publishTaskProgress(projectId, task.id, action, line);
+              this.publishActionLog(projectId, line, 'stdout');
+            },
+            onStderr: (line) => {
+              this.publishTaskProgress(projectId, task.id, action, line);
+              this.publishActionLog(projectId, line, 'stderr');
+            },
+          });
+          await this.repository.markProjectModsPrefetch(projectId, 'success', '最近一次预拉取成功。');
+          await this.prepareProjectFiles(projectId);
+          break;
+        }
       }
 
       await this.repository.updateTask(task.id, 'success', message);
@@ -181,6 +258,9 @@ export class ProjectService {
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知错误';
+      if (action === 'prefetch-mods') {
+        await this.repository.markProjectModsPrefetch(projectId, 'failed', message);
+      }
       await this.repository.updateTask(task.id, 'failed', message);
       await this.repository.setProjectStatus(projectId, 'error');
       this.eventBus.publishTask({
@@ -323,6 +403,27 @@ export class ProjectService {
       await this.repository.removeBackupRecord(record.id);
     }
   }
+
+  private publishTaskProgress(projectId: string, taskId: string, action: ProjectAction, message: string) {
+    this.eventBus.publishTask({
+      type: 'task.progress',
+      projectId,
+      taskId,
+      action,
+      message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private publishActionLog(projectId: string, line: string, stream: 'stdout' | 'stderr' | 'system') {
+    this.eventBus.publishLog({
+      type: 'log.line',
+      projectId,
+      line,
+      stream,
+      timestamp: new Date().toISOString(),
+    });
+  }
 }
 
 function joinMessages(...parts: Array<string | null | undefined>) {
@@ -353,6 +454,7 @@ async function writeClusterRuntimeFiles(
     'Master/server.ini': path.join(clusterDir, 'Master', 'server.ini'),
     'Caves/server.ini': path.join(clusterDir, 'Caves', 'server.ini'),
     'dedicated_server_mods_setup.lua': path.join(clusterDir, 'dedicated_server_mods_setup.lua'),
+    'adminlist.txt': path.join(clusterDir, 'adminlist.txt'),
   };
 
   for (const [source, target] of Object.entries(mappings)) {

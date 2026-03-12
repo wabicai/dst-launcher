@@ -3,20 +3,24 @@
 @tailwind utilities;
 
 :root {
-  --background: 225 34% 8%;
-  --foreground: 210 25% 96%;
-  --card: 224 28% 12%;
-  --card-foreground: 210 25% 96%;
-  --primary: 37 92% 59%;
-  --primary-foreground: 230 22% 10%;
-  --muted: 222 18% 18%;
-  --muted-foreground: 220 15% 68%;
-  --border: 223 19% 22%;
-  --accent: 188 78% 45%;
-  --accent-foreground: 210 20% 98%;
-  --success: 150 67% 50%;
-  --warning: 39 95% 56%;
-  --danger: 353 83% 63%;
+  --background: 222 20% 7%;
+  --page: 222 20% 9%;
+  --panel: 223 18% 11%;
+  --inset: 223 16% 14%;
+  --console: 222 25% 6%;
+  --foreground: 220 18% 92%;
+  --card: 223 18% 11%;
+  --card-foreground: 220 18% 92%;
+  --primary: 35 63% 63%;
+  --primary-foreground: 222 28% 10%;
+  --muted: 223 14% 16%;
+  --muted-foreground: 220 11% 63%;
+  --border: 223 14% 21%;
+  --accent: 222 16% 18%;
+  --accent-foreground: 220 18% 92%;
+  --success: 152 36% 53%;
+  --warning: 39 74% 61%;
+  --danger: 4 68% 60%;
 }
 
 * {
@@ -25,18 +29,42 @@
 
 html,
 body {
-  padding: 0;
   margin: 0;
+  padding: 0;
+}
+
+html {
+  color-scheme: dark;
 }
 
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 20% 20%, rgba(255, 173, 51, 0.18), transparent 28%),
-    radial-gradient(circle at 80% 0%, rgba(35, 191, 224, 0.18), transparent 22%),
-    linear-gradient(180deg, rgba(20, 24, 44, 0.96) 0%, rgba(10, 13, 24, 1) 100%);
+    radial-gradient(circle at top, rgba(199, 152, 97, 0.1), transparent 26%),
+    linear-gradient(180deg, rgba(17, 20, 28, 0.98) 0%, rgba(10, 12, 18, 1) 100%);
   color: hsl(var(--foreground));
   font-family: var(--font-body), sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(circle at center, black 40%, transparent 88%);
+  opacity: 0.18;
+}
+
+body > * {
+  position: relative;
+  z-index: 1;
 }
 
 a {
@@ -44,7 +72,56 @@ a {
   text-decoration: none;
 }
 
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+pre,
+code,
+kbd,
+samp {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
 pre {
   margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+::selection {
+  background: rgba(212, 169, 118, 0.28);
+  color: hsl(var(--foreground));
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+  background-clip: padding-box;
+}
+
+@layer base {
+  :focus-visible {
+    outline: none;
+  }
 }

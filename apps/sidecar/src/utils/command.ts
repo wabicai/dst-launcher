@@ -101,3 +101,79 @@ export function streamCommand(
   child.on('close', callbacks.onClose ?? (() => undefined));
   return child;
 }
+
+export async function runStreamingCommand(
+  command: string,
+  args: string[],
+  options: CommandOptions = {},
+  callbacks: {
+    onStdout?: (line: string) => void;
+    onStderr?: (line: string) => void;
+  } = {},
+): Promise<CommandResult> {
+  return await new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: {
+        ...process.env,
+        ...options.env,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    const bind = (stream: NodeJS.ReadableStream, collector: 'stdout' | 'stderr', callback?: (line: string) => void) => {
+      let buffer = '';
+      stream.on('data', (chunk) => {
+        const text = chunk.toString();
+        if (collector === 'stdout') {
+          stdout += text;
+        } else {
+          stderr += text;
+        }
+
+        if (!callback) {
+          return;
+        }
+
+        buffer += text;
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line.trim()) {
+            callback(line);
+          }
+        }
+      });
+
+      stream.on('end', () => {
+        if (callback && buffer.trim()) {
+          callback(buffer);
+        }
+      });
+    };
+
+    bind(child.stdout, 'stdout', callbacks.onStdout);
+    bind(child.stderr, 'stderr', callbacks.onStderr);
+
+    child.on('close', (code) => {
+      resolve({
+        ok: code === 0,
+        code: code ?? -1,
+        stdout,
+        stderr,
+      });
+    });
+
+    child.on('error', (error) => {
+      resolve({
+        ok: false,
+        code: -1,
+        stdout,
+        stderr: `${stderr}${error.message}`,
+      });
+    });
+  });
+}

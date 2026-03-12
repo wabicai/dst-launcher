@@ -30,16 +30,28 @@ export function renderClusterIni(config: ClusterConfig): string {
     .trim();
 }
 
-export function renderShardServerIni(shard: ShardConfig): string {
+export function renderShardServerIni(
+  shard: ShardConfig,
+  options?: { masterIp?: string; masterPort?: number },
+): string {
+  const shardValues: Record<string, string | number | boolean> = {
+    is_master: shard.isMaster,
+    name: shard.shardName,
+  };
+
+  if (!shard.isMaster && options?.masterIp) {
+    shardValues.master_ip = options.masterIp;
+    if (options.masterPort !== undefined) {
+      shardValues.master_port = options.masterPort;
+    }
+  }
+
   return [
     section('NETWORK', {
       server_port: shard.serverPort,
-    }),
-    section('SHARD', {
-      is_master: shard.isMaster,
-      name: shard.shardName,
       bind_ip: shard.bindIp,
     }),
+    section('SHARD', shardValues),
     section('STEAM', {
       master_server_port: shard.masterServerPort,
       authentication_port: shard.authenticationPort,
@@ -50,6 +62,11 @@ export function renderShardServerIni(shard: ShardConfig): string {
   ]
     .join('\n')
     .trim();
+}
+
+export function renderAdminList(config: ClusterConfig): string {
+  const ids = config.adminIds.map((id) => id.trim()).filter(Boolean);
+  return ids.length > 0 ? `${ids.join('\n')}\n` : '';
 }
 
 export function renderModsSetup(config: ClusterConfig): string {
@@ -75,7 +92,11 @@ export function renderConfigPreview(config: ClusterConfig) {
     'cluster.ini': renderClusterIni(config),
     'cluster_token.txt': config.clusterToken,
     'Master/server.ini': renderShardServerIni(config.master),
-    'Caves/server.ini': renderShardServerIni(config.caves),
+    'Caves/server.ini': renderShardServerIni(config.caves, {
+      masterIp: 'dst-master',
+      masterPort: config.master.masterServerPort,
+    }),
     'dedicated_server_mods_setup.lua': renderModsSetup(config),
+    'adminlist.txt': renderAdminList(config),
   };
 }

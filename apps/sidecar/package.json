@@ -8,7 +8,7 @@
     "build": "tsup --config tsup.config.ts",
     "lint": "tsc --noEmit -p tsconfig.json",
     "test": "pnpm run test:unit && pnpm run build && node ./scripts/smoke-test.mjs",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run --maxWorkers 1"
   },
   "dependencies": {
     "@dst-launcher/shared": "workspace:*",

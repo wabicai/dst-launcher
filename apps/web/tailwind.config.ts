@@ -6,6 +6,10 @@ const config: Config = {
     extend: {
       colors: {
         background: 'hsl(var(--background))',
+        page: 'hsl(var(--page))',
+        panel: 'hsl(var(--panel))',
+        inset: 'hsl(var(--inset))',
+        console: 'hsl(var(--console))',
         foreground: 'hsl(var(--foreground))',
         card: 'hsl(var(--card))',
         'card-foreground': 'hsl(var(--card-foreground))',
@@ -22,10 +26,11 @@ const config: Config = {
       },
       fontFamily: {
         sans: ['var(--font-body)', 'sans-serif'],
-        display: ['var(--font-display)', 'sans-serif'],
+        display: ['var(--font-body)', 'sans-serif'],
+        mono: ['var(--font-mono)', 'monospace'],
       },
       boxShadow: {
-        panel: '0 24px 60px rgba(0, 0, 0, 0.28)',
+        panel: '0 20px 60px rgba(0, 0, 0, 0.24)',
       },
     },
   },

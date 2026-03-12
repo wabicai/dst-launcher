@@ -1,4 +1,5 @@
-import { streamCommand, runCommand } from '../utils/command';
+import { setTimeout as delay } from 'node:timers/promises';
+import { runStreamingCommand, streamCommand, runCommand } from '../utils/command';
 import { parseComposePsOutput } from './compose-ps';
 import type { RuntimeAdapter, RuntimeContainerInfo, PortCheckResult } from './base';
 import type { LocalTargetConfig, ProjectNetwork, TargetConfig, TargetTestResponse } from '@dst-launcher/shared';
@@ -70,6 +71,38 @@ export class LocalDockerAdapter implements RuntimeAdapter {
 
   async ensureFirewall(_target: TargetConfig, _ports: number[], _slug: string): Promise<string> {
     return '本地模式无需额外开放 UDP 防火墙规则。';
+  }
+
+  async prefetchMods(
+    composeFile: string,
+    slug: string,
+    callbacks: {
+      onStdout?: (line: string) => void;
+      onStderr?: (line: string) => void;
+    },
+  ): Promise<string> {
+    const up = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'up', '-d', 'dst-master'));
+    if (!up.ok) {
+      throw new Error(up.stderr || '预拉取模组时启动维护容器失败');
+    }
+
+    await delay(Number(process.env.DST_PREFETCH_WAIT_MS || '15000'));
+    const logs = await runStreamingCommand(
+      'docker',
+      this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'logs', '--tail', '120', 'dst-master'),
+      {},
+      callbacks,
+    );
+    const stop = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'stop', 'dst-master'));
+    if (!stop.ok) {
+      throw new Error(stop.stderr || '预拉取完成后停止维护容器失败');
+    }
+
+    if (!logs.ok && logs.stderr.trim()) {
+      throw new Error(logs.stderr.trim());
+    }
+
+    return `${up.stdout}\n${logs.stdout}\n${stop.stdout}`.trim() || '模组预拉取任务完成';
   }
 
   async checkPorts(_target: TargetConfig, ports: number[]): Promise<PortCheckResult> {

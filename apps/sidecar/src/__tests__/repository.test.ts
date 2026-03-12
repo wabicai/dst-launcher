@@ -33,5 +33,6 @@ describe('ProjectRepository', () => {
     expect(detail.name).toBe('测试服');
     expect(detail.target.type).toBe('local');
     expect(detail.clusterConfig.master.serverPort).toBe(10999);
+    expect(detail.modsSummary.prefetch.state).toBe('not_added');
   });
 });
