@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { ProjectForm, type ProjectFormValue } from '@/components/project-form';
 import { getApiClient } from '@/lib/api';
@@ -25,7 +27,7 @@ export default function NewProjectPage() {
       });
       router.push(`/project?id=${detail.id}`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '创建失败');
+      setMessage(error instanceof Error ? `创建失败：${error.message}` : '创建失败。');
     } finally {
       setBusy(false);
     }
@@ -36,17 +38,19 @@ export default function NewProjectPage() {
     if (!result.ok) {
       throw new Error(result.detail || result.message);
     }
-    setMessage(result.detail || result.message);
+    setMessage(result.detail || '连接测试通过。');
   }
 
   return (
-    <main className="space-y-6">
-      <div>
-        <a href="/" className="text-sm text-muted-foreground transition hover:text-foreground">← 返回项目列表</a>
-        <h1 className="mt-3 font-display text-4xl">新建项目</h1>
-        <p className="mt-2 text-sm text-muted-foreground">第一版默认按个人开发效率优先，尽量少做决策、多做结构化收口。</p>
+    <main className="space-y-4">
+      <div className="flex flex-col gap-2">
+        <Link href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground">
+          <ArrowLeft className="size-4" />
+          返回项目列表
+        </Link>
+        <p className="text-sm text-muted-foreground">单页配置，右侧实时预览。</p>
       </div>
-      {message ? <div className="rounded-2xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">{message}</div> : null}
+      {message ? <div className="rounded-2xl border border-border bg-panel/88 px-4 py-3 text-sm text-muted-foreground">{message}</div> : null}
       <ProjectForm mode="create" onSubmit={handleCreate} onTestTarget={handleTestTarget} busy={busy} />
     </main>
   );

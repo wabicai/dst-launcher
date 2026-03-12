@@ -65,6 +65,43 @@ export function createDatabase(dbFile: string) {
       created_at integer not null,
       updated_at integer not null
     );
+
+    create table if not exists mod_cache (
+      workshop_id text primary key,
+      type text not null,
+      title text not null,
+      author text not null,
+      description text not null,
+      preview_url text not null,
+      source_url text not null,
+      tags_json text not null,
+      steam_updated_at integer,
+      subscriptions integer not null,
+      favorited integer not null,
+      views integer not null,
+      collection_members_json text not null,
+      created_at integer not null,
+      updated_at integer not null
+    );
+
+    create table if not exists project_mod_entries (
+      id text primary key,
+      project_id text not null,
+      workshop_id text not null,
+      type text not null,
+      source text not null,
+      enabled integer not null,
+      sort_order integer not null,
+      prefetch_state text not null,
+      prefetch_message text not null,
+      prefetched_at integer,
+      created_at integer not null,
+      updated_at integer not null,
+      unique(project_id, workshop_id)
+    );
+
+    create index if not exists idx_project_mod_entries_project_id on project_mod_entries(project_id);
+    create index if not exists idx_project_mod_entries_workshop_id on project_mod_entries(workshop_id);
   `);
 
   return sqlite;

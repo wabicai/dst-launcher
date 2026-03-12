@@ -1,16 +1,17 @@
 import type { Metadata } from 'next';
-import { Bricolage_Grotesque, IBM_Plex_Sans } from 'next/font/google';
+import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google';
+import { AppShell } from '@/components/app-shell';
 import './globals.css';
-
-const displayFont = Bricolage_Grotesque({
-  subsets: ['latin'],
-  variable: '--font-display',
-  weight: ['400', '600', '700'],
-});
 
 const bodyFont = IBM_Plex_Sans({
   subsets: ['latin'],
   variable: '--font-body',
+  weight: ['400', '500', '600'],
+});
+
+const monoFont = IBM_Plex_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
   weight: ['400', '500', '600'],
 });
 
@@ -21,11 +22,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN" className={`${displayFont.variable} ${bodyFont.variable}`}>
+    <html lang="zh-CN" className={`${bodyFont.variable} ${monoFont.variable}`}>
       <body>
-        <div className="mx-auto min-h-screen max-w-[1600px] px-6 py-8 lg:px-10">
-          {children}
-        </div>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

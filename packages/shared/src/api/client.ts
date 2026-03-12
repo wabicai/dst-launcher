@@ -1,15 +1,27 @@
 import {
+  ModImportRequestSchema,
+  ModImportResultSchema,
+  ModRecommendationBundleSchema,
+  ModSearchResponseSchema,
   ProjectActionSchema,
   ProjectConfigUpdateSchema,
   ProjectCreateSchema,
   ProjectDetailSchema,
+  ProjectModsDetailSchema,
+  ProjectModsUpdateSchema,
   ProjectSummarySchema,
   TargetTestRequestSchema,
   TargetTestResponseSchema,
+  type ModImportRequest,
+  type ModImportResult,
+  type ModRecommendationBundle,
+  type ModSearchResponse,
   type ProjectAction,
   type ProjectConfigUpdateInput,
   type ProjectCreateInput,
   type ProjectDetail,
+  type ProjectModsDetail,
+  type ProjectModsUpdateInput,
   type ProjectSummary,
   type TargetTestRequest,
   type TargetTestResponse,
@@ -61,6 +73,42 @@ export class DstLauncherApiClient {
       body: JSON.stringify(TargetTestRequestSchema.parse(input)),
     });
     return TargetTestResponseSchema.parse(response);
+  }
+
+  async searchMods(query: string, page = 1): Promise<ModSearchResponse> {
+    const url = new URL(`${this.baseUrl}/mods/search`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('page', String(page));
+    const response = await request(url.toString());
+    return ModSearchResponseSchema.parse(response);
+  }
+
+  async getModRecommendations(): Promise<ModRecommendationBundle[]> {
+    const response = await request(`${this.baseUrl}/mods/recommendations`);
+    return ModRecommendationBundleSchema.array().parse(response);
+  }
+
+  async importMods(input: ModImportRequest): Promise<ModImportResult> {
+    const response = await request(`${this.baseUrl}/mods/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ModImportRequestSchema.parse(input)),
+    });
+    return ModImportResultSchema.parse(response);
+  }
+
+  async getProjectMods(projectId: string): Promise<ProjectModsDetail> {
+    const response = await request(`${this.baseUrl}/projects/${projectId}/mods`);
+    return ProjectModsDetailSchema.parse(response);
+  }
+
+  async updateProjectMods(projectId: string, input: ProjectModsUpdateInput): Promise<ProjectModsDetail> {
+    const response = await request(`${this.baseUrl}/projects/${projectId}/mods`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ProjectModsUpdateSchema.parse(input)),
+    });
+    return ProjectModsDetailSchema.parse(response);
   }
 }
 

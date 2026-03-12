@@ -22,23 +22,19 @@ test('新建项目主流程可重复执行', async ({ page }) => {
   await expect(remotePathInput).toHaveValue('~/dst-launcher/fireside-bravo-camp');
   await expect(clusterPreview).toContainText('cluster_name = Fireside Bravo Camp');
 
-  await page.getByRole('tab', { name: 'Cluster' }).click();
   const clusterNameInput = page.getByTestId('cluster-name-input');
   await expect(clusterNameInput).toHaveValue('Fireside Bravo Camp');
 
   await clusterNameInput.fill('My Custom Cluster');
   await expect(clusterPreview).toContainText('cluster_name = My Custom Cluster');
 
-  await page.getByRole('tab', { name: 'Target' }).click();
   await projectNameInput.fill('Fireside Charlie Camp');
   await expect(projectSlugInput).toHaveValue('fireside-charlie-camp');
   await expect(remotePathInput).toHaveValue('~/dst-launcher/fireside-charlie-camp');
-
-  await page.getByRole('tab', { name: 'Cluster' }).click();
   await expect(page.getByTestId('cluster-name-input')).toHaveValue('My Custom Cluster');
   await expect(clusterPreview).toContainText('cluster_name = My Custom Cluster');
+  await expect(page.getByTestId('project-form-preview')).toBeVisible();
 
-  await page.getByRole('tab', { name: 'Target' }).click();
   await targetModeSelect.selectOption('local');
   await expect(page.getByTestId('remote-path-input')).toHaveCount(0);
 
@@ -46,9 +42,11 @@ test('新建项目主流程可重复执行', async ({ page }) => {
   await page.waitForURL(/\/project\?id=/);
 
   await expect(page.getByTestId('workspace-project-name')).toHaveText('Fireside Charlie Camp');
-  await expect(page.getByTestId('workspace-project-meta')).toContainText('`fireside-charlie-camp`');
+  await expect(page.getByTestId('workspace-project-meta')).toContainText('fireside-charlie-camp');
   await expect(page.getByTestId('workspace-project-meta')).toContainText('本地 Docker');
   await expect(page.getByTestId('workspace-actions')).toBeVisible();
+  await expect(page.getByTestId('workspace-primary-actions')).toBeVisible();
+  await expect(page.getByTestId('workspace-secondary-actions')).toBeVisible();
   await expect(page.getByTestId('workspace-network-panel')).toBeVisible();
   await expect(page.getByTestId('workspace-network-status')).toContainText('本地模式无需额外开放 VPS UDP 端口');
   await expect(page.getByTestId('action-deploy-button')).toBeVisible();

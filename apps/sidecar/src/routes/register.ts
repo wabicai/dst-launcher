@@ -1,5 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { ProjectActionSchema, ProjectConfigUpdateSchema, ProjectCreateSchema, TargetTestRequestSchema } from '@dst-launcher/shared';
+import {
+  ModImportRequestSchema,
+  ProjectActionSchema,
+  ProjectConfigUpdateSchema,
+  ProjectCreateSchema,
+  ProjectModsUpdateSchema,
+  TargetTestRequestSchema,
+} from '@dst-launcher/shared';
 import type { ProjectService } from '../services/project-service';
 import type { EventBus } from '../services/event-bus';
 
@@ -67,6 +74,57 @@ export async function registerRoutes(
     } catch (error) {
       reply.code(400);
       return { message: error instanceof Error ? error.message : '测试目标失败' };
+    }
+  });
+
+  app.get('/mods/search', async (request, reply) => {
+    try {
+      const query = String((request.query as { q?: string; page?: string }).q ?? '');
+      const page = Number((request.query as { q?: string; page?: string }).page ?? '1');
+      return await projectService.searchMods(query, Number.isFinite(page) && page > 0 ? page : 1);
+    } catch (error) {
+      reply.code(400);
+      return { message: error instanceof Error ? error.message : '模组搜索失败' };
+    }
+  });
+
+  app.get('/mods/recommendations', async (_request, reply) => {
+    try {
+      return await projectService.getRecommendations();
+    } catch (error) {
+      reply.code(400);
+      return { message: error instanceof Error ? error.message : '模组推荐加载失败' };
+    }
+  });
+
+  app.post('/mods/import', async (request, reply) => {
+    try {
+      const payload = ModImportRequestSchema.parse(request.body);
+      return await projectService.importMods(payload.value);
+    } catch (error) {
+      reply.code(400);
+      return { message: error instanceof Error ? error.message : '模组导入失败' };
+    }
+  });
+
+  app.get('/projects/:id/mods', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      return await projectService.getProjectMods(id);
+    } catch (error) {
+      reply.code(404);
+      return { message: error instanceof Error ? error.message : '项目模组数据不存在' };
+    }
+  });
+
+  app.put('/projects/:id/mods', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const payload = ProjectModsUpdateSchema.parse(request.body);
+      return await projectService.updateProjectMods(id, payload);
+    } catch (error) {
+      reply.code(400);
+      return { message: error instanceof Error ? error.message : '更新项目模组失败' };
     }
   });
 

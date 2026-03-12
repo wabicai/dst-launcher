@@ -12,6 +12,7 @@ export const ProjectActionSchema = z.enum([
   'update',
   'check-ports',
   'ensure-firewall',
+  'prefetch-mods',
 ]);
 
 export const LocalTargetConfigSchema = z.object({
@@ -62,6 +63,103 @@ export const ClusterConfigSchema = z.object({
 });
 
 export const FirewallProviderSchema = z.enum(['none', 'ufw', 'unknown']);
+
+export const ModEntryTypeSchema = z.enum(['mod', 'collection']);
+export const ModEntrySourceSchema = z.enum(['search', 'recommendation', 'import', 'collection']);
+export const ProjectModPrefetchStateSchema = z.enum(['not_added', 'added', 'success', 'failed']);
+
+export const ModCatalogItemSchema = z.object({
+  workshopId: z.string(),
+  type: ModEntryTypeSchema.default('mod'),
+  title: z.string(),
+  author: z.string().default(''),
+  description: z.string().default(''),
+  previewUrl: z.string().default(''),
+  sourceUrl: z.string().default(''),
+  tags: z.array(z.string()).default([]),
+  updatedAt: z.string().nullable().default(null),
+  subscriptions: z.number().int().min(0).default(0),
+  favorited: z.number().int().min(0).default(0),
+  views: z.number().int().min(0).default(0),
+  collectionMemberIds: z.array(z.string()).default([]),
+});
+
+export const ModSearchResponseSchema = z.object({
+  query: z.string(),
+  page: z.number().int().min(1),
+  items: z.array(ModCatalogItemSchema),
+  hasMore: z.boolean().default(false),
+});
+
+export const ModImportRequestSchema = z.object({
+  value: z.string().min(1, '请输入模组链接、合集链接或 Workshop ID'),
+});
+
+export const ModImportResultSchema = z.object({
+  query: z.string(),
+  type: ModEntryTypeSchema,
+  items: z.array(ModCatalogItemSchema),
+  message: z.string().default(''),
+});
+
+export const ProjectModPrefetchStatusSchema = z.object({
+  state: ProjectModPrefetchStateSchema,
+  message: z.string().default(''),
+  updatedAt: z.string().nullable().default(null),
+});
+
+export const ProjectModEntryInputSchema = z.object({
+  workshopId: z.string(),
+  type: ModEntryTypeSchema.default('mod'),
+  source: ModEntrySourceSchema,
+  enabled: z.boolean().default(true),
+  order: z.number().int().min(0).default(0),
+});
+
+export const ProjectModEntrySchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  workshopId: z.string(),
+  type: ModEntryTypeSchema,
+  source: ModEntrySourceSchema,
+  enabled: z.boolean(),
+  order: z.number().int().min(0),
+  prefetch: ProjectModPrefetchStatusSchema,
+  catalog: ModCatalogItemSchema,
+  collectionMembers: z.array(ModCatalogItemSchema).default([]),
+});
+
+export const ProjectModsUpdateSchema = z.object({
+  entries: z.array(ProjectModEntryInputSchema).default([]),
+});
+
+export const ProjectModsSummarySchema = z.object({
+  totalSelected: z.number().int().min(0).default(0),
+  enabledSelected: z.number().int().min(0).default(0),
+  collectionId: z.string().default(''),
+  standaloneCount: z.number().int().min(0).default(0),
+  resolvedModIds: z.array(z.string()).default([]),
+  prefetch: ProjectModPrefetchStatusSchema,
+});
+
+export const ProjectModsDetailSchema = z.object({
+  projectId: z.string(),
+  summary: ProjectModsSummarySchema,
+  collection: ProjectModEntrySchema.nullable(),
+  entries: z.array(ProjectModEntrySchema),
+  preview: z.object({
+    modsSetup: z.string(),
+    collectionId: z.string().default(''),
+    modIds: z.array(z.string()).default([]),
+  }),
+});
+
+export const ModRecommendationBundleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  items: z.array(ModCatalogItemSchema),
+});
 
 export const ProjectNetworkSchema = z.object({
   requiredUdpPorts: z.array(z.number().int().min(1).max(65535)),
@@ -137,6 +235,7 @@ export const ProjectDetailSchema = z.object({
     })
     .nullable(),
   network: ProjectNetworkSchema,
+  modsSummary: ProjectModsSummarySchema,
   runtime: z.object({
     dockerAvailable: z.boolean(),
     containers: z.array(
@@ -168,6 +267,20 @@ export type TargetConfig = z.infer<typeof TargetConfigSchema>;
 export type ShardConfig = z.infer<typeof ShardConfigSchema>;
 export type ClusterConfig = z.infer<typeof ClusterConfigSchema>;
 export type FirewallProvider = z.infer<typeof FirewallProviderSchema>;
+export type ModEntryType = z.infer<typeof ModEntryTypeSchema>;
+export type ModEntrySource = z.infer<typeof ModEntrySourceSchema>;
+export type ProjectModPrefetchState = z.infer<typeof ProjectModPrefetchStateSchema>;
+export type ModCatalogItem = z.infer<typeof ModCatalogItemSchema>;
+export type ModSearchResponse = z.infer<typeof ModSearchResponseSchema>;
+export type ModImportRequest = z.infer<typeof ModImportRequestSchema>;
+export type ModImportResult = z.infer<typeof ModImportResultSchema>;
+export type ProjectModPrefetchStatus = z.infer<typeof ProjectModPrefetchStatusSchema>;
+export type ProjectModEntryInput = z.infer<typeof ProjectModEntryInputSchema>;
+export type ProjectModEntry = z.infer<typeof ProjectModEntrySchema>;
+export type ProjectModsUpdateInput = z.infer<typeof ProjectModsUpdateSchema>;
+export type ProjectModsSummary = z.infer<typeof ProjectModsSummarySchema>;
+export type ProjectModsDetail = z.infer<typeof ProjectModsDetailSchema>;
+export type ModRecommendationBundle = z.infer<typeof ModRecommendationBundleSchema>;
 export type ProjectNetwork = z.infer<typeof ProjectNetworkSchema>;
 export type ProjectCreateInput = z.infer<typeof ProjectCreateSchema>;
 export type ProjectConfigUpdateInput = z.infer<typeof ProjectConfigUpdateSchema>;

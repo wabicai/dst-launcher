@@ -57,6 +57,7 @@ describe('事件 schema', () => {
 
   it('可以识别 ensure-firewall 动作与 network 字段', () => {
     expect(ProjectActionSchema.parse('ensure-firewall')).toBe('ensure-firewall');
+    expect(ProjectActionSchema.parse('prefetch-mods')).toBe('prefetch-mods');
 
     const detail = ProjectDetailSchema.parse({
       id: 'project_1',
@@ -84,6 +85,18 @@ describe('事件 schema', () => {
         missingUdpPorts: [12346, 12347, 8768, 8769],
         status: 'needs_attention',
         detail: '仍有端口未放通',
+      },
+      modsSummary: {
+        totalSelected: 2,
+        enabledSelected: 2,
+        collectionId: '',
+        standaloneCount: 2,
+        resolvedModIds: ['351325790', '666155465'],
+        prefetch: {
+          state: 'added',
+          message: '模组已加入项目，尚未预拉取。',
+          updatedAt: null,
+        },
       },
       runtime: {
         dockerAvailable: true,

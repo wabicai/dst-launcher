@@ -53,3 +53,36 @@ export type TaskRunRow = {
   createdAt: number;
   updatedAt: number;
 };
+
+export type ModCacheRow = {
+  workshopId: string;
+  type: string;
+  title: string;
+  author: string;
+  description: string;
+  previewUrl: string;
+  sourceUrl: string;
+  tagsJson: string;
+  steamUpdatedAt: number | null;
+  subscriptions: number;
+  favorited: number;
+  views: number;
+  collectionMembersJson: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ProjectModEntryRow = {
+  id: string;
+  projectId: string;
+  workshopId: string;
+  type: string;
+  source: string;
+  enabled: number;
+  sortOrder: number;
+  prefetchState: string;
+  prefetchMessage: string;
+  prefetchedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};

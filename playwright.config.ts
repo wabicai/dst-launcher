@@ -8,6 +8,7 @@ const webUrl = 'http://127.0.0.1:41031';
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
+  workers: 1,
   forbidOnly: false,
   retries: 0,
   timeout: 60_000,

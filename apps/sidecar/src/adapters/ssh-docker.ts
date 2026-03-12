@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { streamCommand, runCommand } from '../utils/command';
+import { streamCommand, runCommand, runStreamingCommand } from '../utils/command';
 import { parseComposePsOutput } from './compose-ps';
 import type { RuntimeAdapter, RuntimeContainerInfo, PortCheckResult } from './base';
 import {
@@ -211,6 +211,34 @@ export class SshDockerAdapter implements RuntimeAdapter {
 
   private resolveRemoteComposePath(composeFile: string) {
     return path.posix.join(this.config.remotePath, 'compose', path.basename(composeFile));
+  }
+
+  async prefetchMods(
+    composeFile: string,
+    slug: string,
+    callbacks: {
+      onStdout?: (line: string) => void;
+      onStderr?: (line: string) => void;
+    },
+  ): Promise<string> {
+    const remoteComposeFile = this.resolveRemoteComposePath(composeFile);
+    const remoteComposeDir = path.posix.dirname(remoteComposeFile);
+    const relativeFile = path.posix.basename(remoteComposeFile);
+    const waitSeconds = Math.max(5, Math.floor(Number(process.env.DST_PREFETCH_WAIT_MS || '15000') / 1000));
+    const command = [
+      `cd ${shellPath(remoteComposeDir)}`,
+      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} up -d dst-master`,
+      `sleep ${waitSeconds}`,
+      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} logs --tail 120 dst-master`,
+      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} stop dst-master`,
+    ].join(' && ');
+
+    const result = await runStreamingCommand('ssh', this.sshArgs(command), {}, callbacks);
+    if (!result.ok) {
+      throw new Error(result.stderr || result.stdout || '远程模组预拉取失败');
+    }
+
+    return result.stdout.trim() || '远程模组预拉取任务完成';
   }
 }
 

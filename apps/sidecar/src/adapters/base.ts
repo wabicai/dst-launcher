@@ -33,5 +33,13 @@ export interface RuntimeAdapter {
   checkPorts(target: TargetConfig, ports: number[]): Promise<PortCheckResult>;
   inspectNetwork(target: TargetConfig, ports: number[]): Promise<ProjectNetwork>;
   ensureFirewall(target: TargetConfig, ports: number[], slug: string): Promise<string>;
+  prefetchMods(
+    composeFile: string,
+    slug: string,
+    callbacks: {
+      onStdout?: (line: string) => void;
+      onStderr?: (line: string) => void;
+    },
+  ): Promise<string>;
   createRemoteBackup?(remotePath: string, backupFile: string): Promise<void>;
 }
