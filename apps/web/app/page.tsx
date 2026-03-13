@@ -11,6 +11,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
+
 export default function HomePage() {
   const client = useMemo(() => getApiClient(), []);
   const { data, error, isLoading } = useSWR('projects', () => client.getProjects(), {
@@ -85,7 +86,7 @@ export default function HomePage() {
       ) : null}
 
       {projects.length > 0 || isLoading || error ? (
-        <section className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <section>
           <Card data-testid="home-project-list">
             <CardHeader className="border-b border-border">
               <div className="flex items-center justify-between gap-3">
@@ -98,11 +99,11 @@ export default function HomePage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="h-[320px] p-0">
+            <CardContent className="p-0">
               {isLoading ? <ListState title="正在加载项目列表..." /> : null}
               {error ? <ListState title={error instanceof Error ? error.message : '加载失败'} danger /> : null}
               {!isLoading && !error ? (
-                <div data-visual-dynamic="project-list" className="h-full divide-y divide-border overflow-auto">
+                <div data-visual-dynamic="project-list" className="divide-y divide-border">
                   <div className="hidden grid-cols-[minmax(0,1.35fr)_120px_100px_120px_120px_110px] gap-3 px-5 py-3 text-[11px] uppercase tracking-[0.16em] text-muted-foreground xl:grid">
                     <span>项目</span>
                     <span>状态</span>
@@ -118,32 +119,6 @@ export default function HomePage() {
               ) : null}
             </CardContent>
           </Card>
-
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>快速创建</CardTitle>
-                <CardDescription>新项目依然保持单页配置与实时预览。</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/projects/new">
-                  <Button className="w-full">
-                    <Rocket className="size-4" />
-                    新建一个项目
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>操作提醒</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <HintRow title="日志是第一诊断面">启动、更新、备份失败都先看控制台。</HintRow>
-                <HintRow title="远程服关注网络卡">确认 UFW 和云侧 UDP 都已放通。</HintRow>
-              </CardContent>
-            </Card>
-          </div>
         </section>
       ) : null}
     </main>

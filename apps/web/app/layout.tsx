@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google';
+import { Toaster } from 'sonner';
 import { AppShell } from '@/components/app-shell';
 import './globals.css';
 
@@ -25,6 +26,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN" className={`${bodyFont.variable} ${monoFont.variable}`}>
       <body>
         <AppShell>{children}</AppShell>
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            className: '!rounded-xl !border !border-border !bg-panel !text-foreground !shadow-panel',
+            descriptionClassName: '!text-muted-foreground',
+          }}
+        />
       </body>
     </html>
   );

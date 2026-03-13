@@ -288,53 +288,51 @@ export function ProjectModsWorkbench({
             <CardDescription>搜索、导入、加入项目与预拉取，全部收敛在这里。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_140px_124px_124px]">
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">搜索 / 导入</div>
-                <Input
-                  data-testid="mods-toolbar-input"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="关键词、Workshop 链接、合集链接或纯数字 ID"
-                />
-              </div>
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">筛选</div>
-                <select
-                  value={filter}
-                  onChange={(event) => setFilter(event.target.value as SelectionFilter)}
-                  className="h-10 w-full rounded-xl border border-border bg-inset px-3 text-sm text-foreground outline-none transition-all focus:border-[hsl(var(--primary)/0.48)] focus:bg-panel"
-                >
-                  <option value="all">全部已选</option>
-                  <option value="added">待预拉取</option>
-                  <option value="success">最近成功</option>
-                  <option value="failed">最近失败</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">已选</div>
-                <div className="flex h-10 items-center rounded-xl border border-border bg-inset px-3 text-sm text-foreground">
-                  {data.summary.totalSelected} 项
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_140px_100px]">
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">搜索 / 导入</div>
+                  <Input
+                    data-testid="mods-toolbar-input"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="关键词、Workshop 链接、合集链接或纯数字 ID"
+                  />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">动作</div>
-                <div className="flex gap-2">
-                  <Button type="button" variant="secondary" className="flex-1" disabled={searchBusy} onClick={() => void handleSearch(1)}>
-                    {searchBusy ? <LoaderCircle className="size-4 animate-spin" /> : <Search className="size-4" />}
-                    {looksLikeWorkshopInput(query) ? '导入' : '搜索'}
-                  </Button>
-                  <Button
-                    data-testid="mods-prefetch-button"
-                    type="button"
-                    className="flex-1"
-                    disabled={prefetchBusy || data.summary.totalSelected === 0 || saveBusy}
-                    onClick={() => void handlePrefetch()}
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">筛选</div>
+                  <select
+                    value={filter}
+                    onChange={(event) => setFilter(event.target.value as SelectionFilter)}
+                    className="h-10 w-full rounded-xl border border-border bg-inset px-3 text-sm text-foreground outline-none transition-all focus:border-[hsl(var(--primary)/0.48)] focus:bg-panel"
                   >
-                    {prefetchBusy ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />}
-                    预拉取
-                  </Button>
+                    <option value="all">全部已选</option>
+                    <option value="added">待预拉取</option>
+                    <option value="success">最近成功</option>
+                    <option value="failed">最近失败</option>
+                  </select>
                 </div>
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">已选</div>
+                  <div className="flex h-10 items-center rounded-xl border border-border bg-inset px-3 text-sm text-foreground">
+                    {data.summary.totalSelected} 项
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <Button type="button" variant="secondary" disabled={searchBusy} onClick={() => void handleSearch(1)}>
+                  {searchBusy ? <LoaderCircle className="size-4 animate-spin" /> : <Search className="size-4" />}
+                  {looksLikeWorkshopInput(query) ? '导入' : '搜索'}
+                </Button>
+                <Button
+                  data-testid="mods-prefetch-button"
+                  type="button"
+                  disabled={prefetchBusy || data.summary.totalSelected === 0 || saveBusy}
+                  onClick={() => void handlePrefetch()}
+                >
+                  {prefetchBusy ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />}
+                  预拉取
+                </Button>
               </div>
             </div>
 
@@ -384,35 +382,33 @@ export function ProjectModsWorkbench({
 
           <Card>
             <CardHeader>
-              <CardTitle>推荐模组包</CardTitle>
-              <CardDescription>首版先提供开服常用预设，不做热榜页。</CardDescription>
+              <CardTitle>推荐模组</CardTitle>
+              <CardDescription>开服常用模组，去重后直接展示。</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {recommendations && recommendations.length > 0 ? (
-                recommendations.map((bundle) => (
-                  <div key={bundle.id} className="rounded-2xl border border-border bg-inset/50 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-medium text-foreground">{bundle.name}</div>
-                        <div className="mt-1 text-sm text-muted-foreground">{bundle.description}</div>
-                      </div>
-                      <Button type="button" variant="secondary" size="sm" disabled={saveBusy || bundle.items.length === 0} onClick={() => void addRecommendationBundle(bundle)}>
-                        <PackagePlus className="size-3.5" />
-                        一键加入
-                      </Button>
+              {flattenRecommendations(recommendations ?? []).length > 0 ? (
+                flattenRecommendations(recommendations ?? []).map((item) => (
+                  <div key={item.workshopId} className="flex items-start justify-between gap-3 rounded-2xl border border-border bg-inset/50 p-4">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-foreground">{item.title}</div>
+                      <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.description || item.author || '—'}</div>
+                      <div className="mt-1 font-mono text-[11px] text-muted-foreground">{item.workshopId}</div>
                     </div>
-                    <div className="mt-3 space-y-2">
-                      {bundle.items.map((item) => (
-                        <div key={item.workshopId} className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-panel/70 px-3 py-2 text-sm">
-                          <div className="truncate text-foreground">{item.title}</div>
-                          <span className="font-mono text-[11px] text-muted-foreground">{item.workshopId}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="shrink-0"
+                      disabled={saveBusy}
+                      onClick={() => void addCatalogItem(item, 'recommendation')}
+                    >
+                      <PackagePlus className="size-3.5" />
+                      加入
+                    </Button>
                   </div>
                 ))
               ) : (
-                <EmptyState title="推荐列表为空" description="当前没能加载到预设模组包。" icon={Sparkles} />
+                <EmptyState title="推荐列表为空" description="当前没能加载到预设模组。" icon={Sparkles} />
               )}
             </CardContent>
           </Card>
@@ -695,6 +691,18 @@ function dedupeCatalogItems(items: ModCatalogItem[]) {
     }
   }
   return Array.from(map.values());
+}
+
+function flattenRecommendations(bundles: ModRecommendationBundle[]): ModCatalogItem[] {
+  const seen = new Map<string, ModCatalogItem>();
+  for (const bundle of bundles) {
+    for (const item of bundle.items) {
+      if (!seen.has(item.workshopId)) {
+        seen.set(item.workshopId, item);
+      }
+    }
+  }
+  return Array.from(seen.values());
 }
 
 function dedupeEntryInputs(entries: ProjectModEntryInput[]) {

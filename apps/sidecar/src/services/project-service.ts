@@ -30,6 +30,8 @@ import { resolveInstancePaths, type AppPaths } from '../utils/paths';
 import type { RuntimeAdapter } from '../adapters/base';
 import { LocalDockerAdapter } from '../adapters/local-docker';
 import { SshDockerAdapter } from '../adapters/ssh-docker';
+import { NativeAdapter } from '../adapters/native-adapter';
+import { tunnelService } from './tunnel-service';
 import { SteamWorkshopProvider } from './steam-workshop-provider';
 
 export class ProjectService {
@@ -61,13 +63,27 @@ export class ProjectService {
     const ports = getProjectPorts(detail.clusterConfig);
     const [runtime, network] = await Promise.all([
       this.getRuntime(detail.target, detail.slug, detail.deployment?.composePath ?? null),
-      this.createAdapter(detail.target).inspectNetwork(detail.target, ports),
+      this.createAdapter(detail.target, detail.slug).inspectNetwork(detail.target, ports),
     ]);
+
+    // Attach tunnel status if active
+    const ts = tunnelService.status(detail.slug);
+    const tunnel = ts.active || ts.claimUrl || ts.error
+      ? {
+          active: ts.active,
+          publicHost: ts.info?.publicHost ?? '',
+          portMappings: ts.info?.portMappings ?? [],
+          error: ts.claimUrl
+            ? `请在浏览器中完成认证: ${ts.claimUrl}`
+            : ts.error ?? '',
+        }
+      : undefined;
 
     return {
       ...detail,
       network,
       runtime,
+      tunnel,
     };
   }
 
@@ -122,14 +138,14 @@ export class ProjectService {
     return await this.repository.getProjectModsDetail(projectId);
   }
 
-  async testTarget(target: TargetConfig) {
-    const adapter = this.createAdapter(target);
+  async testTarget(target: TargetConfig, slug?: string) {
+    const adapter = this.createAdapter(target, slug);
     return adapter.testConnection();
   }
 
   async runAction(projectId: string, action: ProjectAction) {
     const project = await this.repository.getProjectDetail(projectId);
-    const adapter = this.createAdapter(project.target);
+    const adapter = this.createAdapter(project.target, project.slug);
     const task = await this.repository.createTask(projectId, action, `开始执行 ${action}`);
     this.eventBus.publishTask({
       type: 'task.started',
@@ -168,24 +184,33 @@ export class ProjectService {
           }
           await this.prepareProjectFiles(projectId);
           await this.syncIfNeeded(project.target, paths.root, adapter);
-          message = joinMessages(networkMessage, await adapter.composeUp(paths.composeFile, project.slug));
+          message = joinMessages(
+            networkMessage,
+            await adapter.composeUp(
+              project.target.type === 'native' ? '' : paths.composeFile,
+              project.slug,
+            ),
+          );
           await this.repository.setProjectStatus(projectId, 'running');
           break;
         }
         case 'stop': {
-          message = await adapter.composeStop(paths.composeFile, project.slug);
+          const cf = project.target.type === 'native' ? '' : paths.composeFile;
+          message = await adapter.composeStop(cf, project.slug);
           await this.repository.setProjectStatus(projectId, 'stopped');
           break;
         }
         case 'restart': {
-          message = await adapter.composeRestart(paths.composeFile, project.slug);
+          const cf = project.target.type === 'native' ? '' : paths.composeFile;
+          message = await adapter.composeRestart(cf, project.slug);
           await this.repository.setProjectStatus(projectId, 'running');
           break;
         }
         case 'update': {
           await this.prepareProjectFiles(projectId);
           await this.syncIfNeeded(project.target, paths.root, adapter);
-          message = await adapter.composeUpdate(paths.composeFile, project.slug);
+          const cf = project.target.type === 'native' ? '' : paths.composeFile;
+          message = await adapter.composeUpdate(cf, project.slug);
           await this.repository.setProjectStatus(projectId, 'running');
           break;
         }
@@ -200,6 +225,55 @@ export class ProjectService {
         }
         case 'ensure-firewall': {
           message = await adapter.ensureFirewall(project.target, ports, project.slug);
+          break;
+        }
+        case 'install-server': {
+          if (project.target.type !== 'native') {
+            throw new Error('install-server 仅适用于 native 模式');
+          }
+          const nativeAdapter = adapter as import('../adapters/native-adapter').NativeAdapter;
+          this.publishTaskProgress(projectId, task.id, action, '开始安装/更新 DST 服务端...');
+          message = await nativeAdapter.installServer({
+            onStdout: (line) => {
+              this.publishTaskProgress(projectId, task.id, action, line);
+              this.publishActionLog(projectId, line, 'stdout');
+            },
+            onStderr: (line) => {
+              this.publishTaskProgress(projectId, task.id, action, line);
+              this.publishActionLog(projectId, line, 'stderr');
+            },
+          });
+          break;
+        }
+        case 'start-tunnel': {
+          const tunnelDir = path.join(paths.root, 'tunnel');
+          this.publishTaskProgress(projectId, task.id, action, '启动 NAT 穿透...');
+          await tunnelService.start(project.slug, tunnelDir, ports, {
+            onStdout: (line) => {
+              this.publishTaskProgress(projectId, task.id, action, line);
+              this.publishActionLog(projectId, line, 'stdout');
+            },
+            onStderr: (line) => {
+              this.publishActionLog(projectId, line, 'stderr');
+            },
+          });
+          // Wait a few seconds for tunnel to establish
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          const tunnelStatus = tunnelService.status(project.slug);
+          if (tunnelStatus.claimUrl) {
+            message = `需要认证，请在浏览器中打开: ${tunnelStatus.claimUrl}`;
+          } else if (tunnelStatus.info?.publicHost) {
+            message = `隧道已建立: ${tunnelStatus.info.publicHost}`;
+          } else if (tunnelStatus.error) {
+            message = tunnelStatus.error;
+          } else {
+            message = 'playit 已启动，等待隧道建立...';
+          }
+          break;
+        }
+        case 'stop-tunnel': {
+          await tunnelService.stop(project.slug);
+          message = 'NAT 穿透已停止';
           break;
         }
         case 'prefetch-mods': {
@@ -283,7 +357,7 @@ export class ProjectService {
 
   async streamLogs(projectId: string, onLine: (line: string, stream: 'stdout' | 'stderr' | 'system') => void) {
     const project = await this.repository.getProjectDetail(projectId);
-    const adapter = this.createAdapter(project.target);
+    const adapter = this.createAdapter(project.target, project.slug);
     const paths = resolveInstancePaths(this.paths.instancesDir, project.slug);
 
     return adapter.streamComposeLogs(paths.composeFile, project.slug, {
@@ -300,53 +374,72 @@ export class ProjectService {
     await fs.mkdir(path.join(paths.clusterDir, 'Caves'), { recursive: true });
     await fs.mkdir(paths.serverDir, { recursive: true });
     await fs.mkdir(paths.backupsDir, { recursive: true });
-    await fs.mkdir(paths.composeDir, { recursive: true });
 
-    const preview = renderConfigPreview(detail.clusterConfig);
+    const preview = renderConfigPreview(detail.clusterConfig, { targetType: detail.target.type });
     await writeRenderedFiles(paths.configDir, preview);
     await writeClusterRuntimeFiles(paths.clusterDir, preview);
 
-    const compose = renderComposeFile({
-      slug: detail.slug,
-      clusterConfig: detail.clusterConfig,
-    });
-    await fs.writeFile(paths.composeFile, compose, 'utf8');
-    await this.repository.upsertDeployment(
-      projectId,
-      paths.composeFile,
-      detail.target.type === 'ssh' ? detail.target.remotePath : paths.root,
-      false,
-    );
+    if (detail.target.type === 'native') {
+      // Write worldgenoverride.lua for Caves
+      const cavesWorldgen = path.join(paths.clusterDir, 'Caves', 'worldgenoverride.lua');
+      await fs.writeFile(cavesWorldgen, 'return { override_enabled = true, preset = "DST_CAVE" }\n', 'utf8');
+      // Native mode: dedicated_server_mods_setup.lua goes in the server's mods/ directory
+      const modsDir = path.join(paths.nativeServerDir, 'mods');
+      await fs.mkdir(modsDir, { recursive: true });
+      const modsSetupContent = preview['dedicated_server_mods_setup.lua'];
+      if (modsSetupContent) {
+        await fs.writeFile(path.join(modsDir, 'dedicated_server_mods_setup.lua'), modsSetupContent, 'utf8');
+      }
+      await this.repository.upsertDeployment(projectId, '', paths.root, false);
+    } else {
+      await fs.mkdir(paths.composeDir, { recursive: true });
+      const compose = renderComposeFile({
+        slug: detail.slug,
+        clusterConfig: detail.clusterConfig,
+      });
+      await fs.writeFile(paths.composeFile, compose, 'utf8');
+      await this.repository.upsertDeployment(
+        projectId,
+        paths.composeFile,
+        detail.target.type === 'ssh' ? detail.target.remotePath : paths.root,
+        false,
+      );
+    }
   }
 
-  private createAdapter(target: TargetConfig): RuntimeAdapter {
+  private createAdapter(target: TargetConfig, slug?: string): RuntimeAdapter {
     if (target.type === 'local') {
       return new LocalDockerAdapter(target);
+    }
+    if (target.type === 'native') {
+      const instancePaths = resolveInstancePaths(this.paths.instancesDir, slug ?? 'default');
+      return new NativeAdapter(target, instancePaths);
     }
     return new SshDockerAdapter(target);
   }
 
   private async getRuntime(target: TargetConfig, slug: string, composeFile: string | null) {
-    const adapter = this.createAdapter(target);
-    const dockerCheck = await adapter.testConnection();
+    const adapter = this.createAdapter(target, slug);
+    const check = await adapter.testConnection();
+
+    if (target.type === 'native') {
+      try {
+        const containers = await adapter.composePs('', slug);
+        return { dockerAvailable: check.ok, containers };
+      } catch {
+        return { dockerAvailable: check.ok, containers: [] };
+      }
+    }
+
     if (!composeFile) {
-      return {
-        dockerAvailable: dockerCheck.ok,
-        containers: [],
-      };
+      return { dockerAvailable: check.ok, containers: [] };
     }
 
     try {
       const containers = await adapter.composePs(composeFile, slug);
-      return {
-        dockerAvailable: dockerCheck.ok,
-        containers,
-      };
+      return { dockerAvailable: check.ok, containers };
     } catch {
-      return {
-        dockerAvailable: dockerCheck.ok,
-        containers: [],
-      };
+      return { dockerAvailable: check.ok, containers: [] };
     }
   }
 

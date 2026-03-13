@@ -25,6 +25,7 @@ async function start() {
   await app.register(cors, {
     origin: true,
     credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
   await app.register(websocket);
   await registerRoutes(app, projectService, eventBus);

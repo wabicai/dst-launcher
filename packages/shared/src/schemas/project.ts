@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { createRemoteDeployPath, DEFAULT_PROJECT_SLUG } from '../utils/project';
 
-export const TargetTypeSchema = z.enum(['local', 'ssh']);
+export const TargetTypeSchema = z.enum(['local', 'ssh', 'native']);
 export const ProjectStatusSchema = z.enum(['idle', 'running', 'stopped', 'error', 'unknown']);
 export const ProjectActionSchema = z.enum([
   'deploy',
@@ -13,6 +13,9 @@ export const ProjectActionSchema = z.enum([
   'check-ports',
   'ensure-firewall',
   'prefetch-mods',
+  'install-server',
+  'start-tunnel',
+  'stop-tunnel',
 ]);
 
 export const LocalTargetConfigSchema = z.object({
@@ -22,17 +25,35 @@ export const LocalTargetConfigSchema = z.object({
 
 export const SshTargetConfigSchema = z.object({
   type: z.literal('ssh'),
-  host: z.string().min(1, '远程主机不能为空'),
+  host: z.string().min(1, '远程主机不能为空').regex(/^[a-zA-Z0-9._:-]+$/, '主机名格式不合法'),
   port: z.number().int().min(1).max(65535).default(22),
-  username: z.string().min(1, '远程用户名不能为空'),
-  privateKeyPath: z.string().min(1, 'SSH 私钥路径不能为空'),
+  username: z.string().min(1, '远程用户名不能为空').regex(/^[a-zA-Z0-9._-]+$/, '用户名格式不合法'),
+  privateKeyPath: z.string().min(1, 'SSH 私钥路径不能为空').refine(
+    (v) => /^[a-zA-Z0-9._~/ -]+$/.test(v) && !v.includes('..'),
+    '私钥路径含有不安全字符',
+  ),
   remotePath: z.string().default(createRemoteDeployPath(DEFAULT_PROJECT_SLUG)),
   dockerContext: z.string().optional(),
+});
+
+const safePathPattern = /^[a-zA-Z0-9._/ -]*$/;
+
+export const NativeTargetConfigSchema = z.object({
+  type: z.literal('native'),
+  steamcmdPath: z.string().default('').refine(
+    (v) => v === '' || (safePathPattern.test(v) && !v.includes('..')),
+    '路径含有不安全字符',
+  ),
+  installPath: z.string().default('').refine(
+    (v) => v === '' || (safePathPattern.test(v) && !v.includes('..')),
+    '路径含有不安全字符',
+  ),
 });
 
 export const TargetConfigSchema = z.discriminatedUnion('type', [
   LocalTargetConfigSchema,
   SshTargetConfigSchema,
+  NativeTargetConfigSchema,
 ]);
 
 export const ShardConfigSchema = z.object({
@@ -216,6 +237,16 @@ export const TaskRunSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const TunnelInfoSchema = z.object({
+  active: z.boolean(),
+  publicHost: z.string().default(''),
+  portMappings: z.array(z.object({
+    localPort: z.number(),
+    publicPort: z.number(),
+  })).default([]),
+  error: z.string().default(''),
+});
+
 export const ProjectDetailSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -246,6 +277,7 @@ export const ProjectDetailSchema = z.object({
       }),
     ),
   }),
+  tunnel: TunnelInfoSchema.optional(),
 });
 
 export const TargetTestRequestSchema = z.object({
@@ -263,6 +295,8 @@ export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 export type ProjectAction = z.infer<typeof ProjectActionSchema>;
 export type LocalTargetConfig = z.infer<typeof LocalTargetConfigSchema>;
 export type SshTargetConfig = z.infer<typeof SshTargetConfigSchema>;
+export type NativeTargetConfig = z.infer<typeof NativeTargetConfigSchema>;
+export type TunnelInfo = z.infer<typeof TunnelInfoSchema>;
 export type TargetConfig = z.infer<typeof TargetConfigSchema>;
 export type ShardConfig = z.infer<typeof ShardConfigSchema>;
 export type ClusterConfig = z.infer<typeof ClusterConfigSchema>;

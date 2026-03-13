@@ -20,14 +20,29 @@ describe('配置渲染器', () => {
     expect(preview['Caves/server.ini']).toContain('name = Caves');
   });
 
+  it('native 模式 Caves master_ip 为 127.0.0.1', () => {
+    const config = createDefaultClusterConfig('Native 测试');
+    const preview = renderConfigPreview(config, { targetType: 'native' });
+
+    expect(preview['Caves/server.ini']).toContain('master_ip = 127.0.0.1');
+    expect(preview['Caves/server.ini']).not.toContain('dst_master');
+  });
+
+  it('Docker 模式 Caves master_ip 为 dst_master', () => {
+    const config = createDefaultClusterConfig('Docker 测试');
+    const preview = renderConfigPreview(config);
+
+    expect(preview['Caves/server.ini']).toContain('master_ip = dst_master');
+  });
+
   it('可以生成 compose 文件', () => {
     const compose = renderComposeFile({
       slug: 'demo-dst',
       clusterConfig: createDefaultClusterConfig('Demo'),
     });
 
-    expect(compose).toContain('dst-master');
-    expect(compose).toContain('dst-caves');
+    expect(compose).toContain('dst_master');
+    expect(compose).toContain('dst_caves');
     expect(compose).toContain('dst-updater');
   });
 });
@@ -58,6 +73,9 @@ describe('事件 schema', () => {
   it('可以识别 ensure-firewall 动作与 network 字段', () => {
     expect(ProjectActionSchema.parse('ensure-firewall')).toBe('ensure-firewall');
     expect(ProjectActionSchema.parse('prefetch-mods')).toBe('prefetch-mods');
+    expect(ProjectActionSchema.parse('install-server')).toBe('install-server');
+    expect(ProjectActionSchema.parse('start-tunnel')).toBe('start-tunnel');
+    expect(ProjectActionSchema.parse('stop-tunnel')).toBe('stop-tunnel');
 
     const detail = ProjectDetailSchema.parse({
       id: 'project_1',

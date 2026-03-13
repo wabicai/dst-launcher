@@ -20,7 +20,14 @@ export function resolveAppPaths(customAppDataDir?: string): AppPaths {
 }
 
 export function resolveInstancePaths(instancesDir: string, slug: string) {
-  const root = path.join(instancesDir, slug);
+  if (!/^[a-z0-9-]+$/.test(slug)) {
+    throw new Error(`无效的 slug: ${slug}`);
+  }
+  const root = path.resolve(instancesDir, slug);
+  if (!root.startsWith(path.resolve(instancesDir) + path.sep)) {
+    throw new Error(`路径逃逸: ${slug}`);
+  }
+  const nativeServerDir = path.join(root, 'ds_server');
   return {
     root,
     configDir: path.join(root, 'config', 'rendered'),
@@ -30,5 +37,14 @@ export function resolveInstancePaths(instancesDir: string, slug: string) {
     clusterDir: path.join(root, 'data', 'cluster'),
     serverDir: path.join(root, 'data', 'server'),
     backupsDir: path.join(root, 'backups'),
+    steamcmdDir: path.join(root, 'steamcmd'),
+    nativeServerDir,
+    nativeBinary: path.join(
+      nativeServerDir,
+      'dontstarve_dedicated_server_nullrenderer.app',
+      'Contents',
+      'MacOS',
+      'dontstarve_dedicated_server_nullrenderer',
+    ),
   };
 }

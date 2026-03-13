@@ -17,8 +17,7 @@ export function getApiClient() {
 }
 
 export function toWsUrl(path: string) {
-  const base = new URL(getApiBaseUrl());
-  base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
-  base.pathname = path;
-  return base.toString();
+  const base = getApiBaseUrl();
+  const wsBase = base.replace(/^http/, 'ws');
+  return `${wsBase}${path}`;
 }

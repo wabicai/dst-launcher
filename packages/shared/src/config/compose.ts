@@ -11,7 +11,7 @@ export function renderComposeFile(input: ComposeGenerationInput): string {
 
   return `name: ${slug}
 services:
-  dst-master:
+  dst_master:
     image: wollwolke/dst-dedicated-server:latest
     platform: linux/amd64
     container_name: ${slug}_dst_master
@@ -46,7 +46,7 @@ services:
       timeout: 10s
       retries: 3
 
-  dst-caves:
+  dst_caves:
     image: wollwolke/dst-dedicated-server:latest
     platform: linux/amd64
     container_name: ${slug}_dst_caves
@@ -54,7 +54,7 @@ services:
     stdin_open: true
     tty: true
     depends_on:
-      dst-master:
+      dst_master:
         condition: service_started
     environment:
       CLUSTER_NAME: ${yamlString(clusterConfig.clusterName)}

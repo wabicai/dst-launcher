@@ -81,7 +81,7 @@ export class LocalDockerAdapter implements RuntimeAdapter {
       onStderr?: (line: string) => void;
     },
   ): Promise<string> {
-    const up = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'up', '-d', 'dst-master'));
+    const up = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'up', '-d', 'dst_master'));
     if (!up.ok) {
       throw new Error(up.stderr || '预拉取模组时启动维护容器失败');
     }
@@ -89,11 +89,11 @@ export class LocalDockerAdapter implements RuntimeAdapter {
     await delay(Number(process.env.DST_PREFETCH_WAIT_MS || '15000'));
     const logs = await runStreamingCommand(
       'docker',
-      this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'logs', '--tail', '120', 'dst-master'),
+      this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'logs', '--tail', '120', 'dst_master'),
       {},
       callbacks,
     );
-    const stop = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'stop', 'dst-master'));
+    const stop = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'stop', 'dst_master'));
     if (!stop.ok) {
       throw new Error(stop.stderr || '预拉取完成后停止维护容器失败');
     }
@@ -108,7 +108,8 @@ export class LocalDockerAdapter implements RuntimeAdapter {
   async checkPorts(_target: TargetConfig, ports: number[]): Promise<PortCheckResult> {
     const checks = await Promise.all(
       ports.map(async (port) => {
-        const result = await runCommand('bash', ['-lc', `lsof -n -P -iUDP:${port}`]);
+        assertPort(port);
+        const result = await runCommand('lsof', ['-n', '-P', `-iUDP:${port}`]);
         return {
           port,
           inUse: result.ok && !!result.stdout.trim(),
@@ -125,5 +126,11 @@ export class LocalDockerAdapter implements RuntimeAdapter {
         .map((item) => `${item.port}: ${item.inUse ? '占用' : '空闲'}${item.detail ? ` (${item.detail.split('\n')[0]})` : ''}`)
         .join('\n'),
     };
+  }
+}
+
+function assertPort(port: number) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`无效端口号: ${port}`);
   }
 }

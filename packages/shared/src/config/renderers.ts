@@ -74,26 +74,31 @@ export function renderModsSetup(config: ClusterConfig): string {
     '-- 由 DST Launcher 自动生成',
   ];
 
-  if (config.modCollection.trim()) {
-    lines.push(`ServerModCollectionSetup(\"${config.modCollection.trim()}\")`);
+  if (config.modCollection.trim() && /^\d+$/.test(config.modCollection.trim())) {
+    lines.push(`ServerModCollectionSetup("${config.modCollection.trim()}")`);
   }
 
   for (const modId of config.modIds) {
     const normalized = modId.trim();
     if (!normalized) continue;
-    lines.push(`ServerModSetup(\"${normalized}\")`);
+    if (!/^\d+$/.test(normalized)) continue;
+    lines.push(`ServerModSetup("${normalized}")`);
   }
 
   return `${lines.join('\n')}\n`;
 }
 
-export function renderConfigPreview(config: ClusterConfig) {
+export function renderConfigPreview(
+  config: ClusterConfig,
+  options?: { targetType?: 'local' | 'ssh' | 'native' },
+) {
+  const cavesMasterIp = options?.targetType === 'native' ? '127.0.0.1' : 'dst_master';
   return {
     'cluster.ini': renderClusterIni(config),
     'cluster_token.txt': config.clusterToken,
     'Master/server.ini': renderShardServerIni(config.master),
     'Caves/server.ini': renderShardServerIni(config.caves, {
-      masterIp: 'dst-master',
+      masterIp: cavesMasterIp,
       masterPort: config.master.masterServerPort,
     }),
     'dedicated_server_mods_setup.lua': renderModsSetup(config),

@@ -1,0 +1,1 @@
+{"root":["./src/index.ts","./src/__tests__/project-utils.test.ts","./src/__tests__/renderers.test.ts","./src/api/client.ts","./src/config/compose.ts","./src/config/defaults.ts","./src/config/renderers.ts","./src/events/index.ts","./src/schemas/project.ts","./src/utils/format.ts","./src/utils/project.ts"],"version":"5.9.3"}

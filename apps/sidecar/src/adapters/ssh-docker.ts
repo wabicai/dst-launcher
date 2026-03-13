@@ -49,7 +49,7 @@ export class SshDockerAdapter implements RuntimeAdapter {
       '-az',
       '--delete',
       '-e',
-      `ssh -i ${remoteConfig.privateKeyPath} -p ${remoteConfig.port}`,
+      `ssh -i ${shellEscape(remoteConfig.privateKeyPath)} -p ${String(remoteConfig.port)}`,
       `${path.resolve(localRoot)}/`,
       `${remoteConfig.username}@${remoteConfig.host}:${remotePath}/`,
     ]);
@@ -60,8 +60,8 @@ export class SshDockerAdapter implements RuntimeAdapter {
     const preparePermissions = await runCommand('ssh', this.sshArgs([
       `mkdir -p ${shellPath(path.posix.join(remotePath, 'data'))}`,
       `mkdir -p ${shellPath(path.posix.join(remotePath, 'backups'))}`,
-      `chmod -R 0777 ${shellPath(path.posix.join(remotePath, 'data'))}`,
-      `chmod -R 0777 ${shellPath(path.posix.join(remotePath, 'backups'))}`,
+      `chmod -R 0755 ${shellPath(path.posix.join(remotePath, 'data'))}`,
+      `chmod -R 0755 ${shellPath(path.posix.join(remotePath, 'backups'))}`,
     ].join(' && ')));
     if (!preparePermissions.ok) {
       throw new Error(preparePermissions.stderr || '远程目录权限初始化失败');
@@ -141,7 +141,10 @@ export class SshDockerAdapter implements RuntimeAdapter {
     }
 
     const allowCommand = network.missingUdpPorts
-      .map((port) => `ufw allow ${port}/udp comment ${shellEscape(`DST Launcher ${slug}`)}`)
+      .map((port) => {
+        assertPort(port);
+        return `ufw allow ${port}/udp comment ${shellEscape(`DST Launcher ${slug}`)}`;
+      })
       .join(' && ');
     const allowResult = await runCommand('ssh', this.sshArgs(allowCommand));
     if (!allowResult.ok) {
@@ -158,7 +161,10 @@ export class SshDockerAdapter implements RuntimeAdapter {
 
   async checkPorts(_target: TargetConfig, ports: number[]): Promise<PortCheckResult> {
     const script = ports
-      .map((port) => `if ss -lun | grep -q ":${port} "; then echo used:${port}; else echo free:${port}; fi`)
+      .map((port) => {
+        assertPort(port);
+        return `if ss -lun | grep -q ':${port} '; then echo used:${port}; else echo free:${port}; fi`;
+      })
       .join('; ');
     const result = await runCommand('ssh', this.sshArgs(script));
     if (!result.ok) {
@@ -227,10 +233,10 @@ export class SshDockerAdapter implements RuntimeAdapter {
     const waitSeconds = Math.max(5, Math.floor(Number(process.env.DST_PREFETCH_WAIT_MS || '15000') / 1000));
     const command = [
       `cd ${shellPath(remoteComposeDir)}`,
-      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} up -d dst-master`,
+      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} up -d dst_master`,
       `sleep ${waitSeconds}`,
-      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} logs --tail 120 dst-master`,
-      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} stop dst-master`,
+      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} logs --tail 120 dst_master`,
+      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} stop dst_master`,
     ].join(' && ');
 
     const result = await runStreamingCommand('ssh', this.sshArgs(command), {}, callbacks);
@@ -260,4 +266,10 @@ function shellPath(value: string): string {
 
 function escapeDoubleQuoted(value: string): string {
   return value.replace(/[\\"$`]/g, '\\$&');
+}
+
+function assertPort(port: number) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`无效端口号: ${port}`);
+  }
 }
