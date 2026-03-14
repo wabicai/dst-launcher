@@ -65,6 +65,7 @@ describe('模组管理路由', () => {
           favorited: 2,
           views: 20,
           collectionMemberIds: [],
+          serverSide: false,
         },
       ],
     };
@@ -87,6 +88,7 @@ describe('模组管理路由', () => {
           favorited: 2,
           views: 20,
           collectionMemberIds: ['351325790'],
+          serverSide: false,
         },
         fakeSearch.items[0]!,
       ],

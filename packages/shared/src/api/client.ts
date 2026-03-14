@@ -10,6 +10,7 @@ import {
   ProjectModsDetailSchema,
   ProjectModsUpdateSchema,
   ProjectSummarySchema,
+  ServerStatsSchema,
   TargetTestRequestSchema,
   TargetTestResponseSchema,
   type ModImportRequest,
@@ -23,6 +24,7 @@ import {
   type ProjectModsDetail,
   type ProjectModsUpdateInput,
   type ProjectSummary,
+  type ServerStats,
   type TargetTestRequest,
   type TargetTestResponse,
 } from '../schemas/project';
@@ -109,6 +111,11 @@ export class DstLauncherApiClient {
       body: JSON.stringify(ProjectModsUpdateSchema.parse(input)),
     });
     return ProjectModsDetailSchema.parse(response);
+  }
+
+  async getProjectStats(projectId: string): Promise<ServerStats> {
+    const response = await request(`${this.baseUrl}/projects/${projectId}/stats`);
+    return ServerStatsSchema.parse(response);
   }
 }
 

@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
-  CloudDownload,
   Copy,
   Download,
   ExternalLink,
@@ -19,6 +18,7 @@ import {
   Power,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   X,
 } from 'lucide-react';
 import type { ProjectAction, ProjectDetail, ProjectNetwork, TargetConfig } from '@dst-launcher/shared';
@@ -29,6 +29,7 @@ import { CopyButton } from './copy-button';
 import { ProjectForm, type ProjectFormValue } from './project-form';
 import { ProjectModsWorkbench } from './project-mods-workbench';
 import { RuntimeConsole } from './runtime-console';
+import { ServerStatsWidget } from './server-stats-widget';
 import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
@@ -47,6 +48,7 @@ const actionLabels: Record<ProjectAction, string> = {
   'install-server': '安装/更新服务器',
   'start-tunnel': '启动穿透',
   'stop-tunnel': '停止穿透',
+  'reset-world': '重置世界',
 };
 
 const actionGuides: Record<ProjectAction, string> = {
@@ -62,6 +64,7 @@ const actionGuides: Record<ProjectAction, string> = {
   'install-server': 'SteamCMD 安装/更新完成。',
   'start-tunnel': 'NAT 穿透已启动。',
   'stop-tunnel': 'NAT 穿透已停止。',
+  'reset-world': '存档已清除，服务器正在重新启动。',
 };
 
 export function ProjectWorkspace({ projectId }: { projectId: string }) {
@@ -71,6 +74,15 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   });
   const [actionBusy, setActionBusy] = useState<ProjectAction | null>(null);
   const { lines, lastTaskEvent } = useLogStream(projectId);
+
+  // Toast on async task failure (e.g. prefetch-mods fails while server is running)
+  useEffect(() => {
+    if (!lastTaskEvent || lastTaskEvent.type !== 'task.failed') return;
+    const action = 'action' in lastTaskEvent ? lastTaskEvent.action : undefined;
+    const label = action && action in actionLabels ? actionLabels[action as ProjectAction] : '操作';
+    const detail = 'message' in lastTaskEvent ? lastTaskEvent.message : '';
+    toast.error(`${label}失败`, { description: detail || '请查看日志获取详情。', duration: 8000 });
+  }, [lastTaskEvent]);
 
   async function runAction(action: ProjectAction) {
     setActionBusy(action);
@@ -136,21 +148,25 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
             </div>
           </div>
 
-          <div data-testid="workspace-actions" className="w-full max-w-[520px] space-y-3">
-            <div data-testid="workspace-primary-actions" className="flex flex-wrap gap-3">
-              <ActionButton icon={CloudDownload} label="部署" testId="action-deploy-button" busy={actionBusy === 'deploy'} onClick={() => runAction('deploy')} />
-              <ActionButton icon={Play} label="启动" testId="action-start-button" busy={actionBusy === 'start'} onClick={() => runAction('start')} />
-            </div>
-            <div data-testid="workspace-secondary-actions" className="flex flex-wrap gap-3">
-              <ActionButton icon={Power} label="停止" testId="action-stop-button" busy={actionBusy === 'stop'} onClick={() => runAction('stop')} variant="secondary" />
-              <ActionButton icon={RefreshCw} label="重启" testId="action-restart-button" busy={actionBusy === 'restart'} onClick={() => runAction('restart')} variant="secondary" />
-              <ActionButton icon={HardDriveDownload} label="备份" testId="action-backup-button" busy={actionBusy === 'backup'} onClick={() => runAction('backup')} variant="secondary" />
-              <ActionButton icon={ShieldCheck} label="查端口" testId="action-check-ports-button" busy={actionBusy === 'check-ports'} onClick={() => runAction('check-ports')} variant="secondary" />
-              {data.target.type === 'native' && (
-                <ActionButton icon={Download} label="安装/更新服务器" testId="action-install-server-button" busy={actionBusy === 'install-server'} onClick={() => runAction('install-server')} variant="secondary" />
-              )}
-            </div>
-          </div>
+          {(() => {
+            const isRunning = data.runtime.containers.some((c) => c.state === 'running');
+            const anyBusy = actionBusy !== null;
+            return (
+              <div data-testid="workspace-actions" className="space-y-2">
+                <div data-testid="workspace-primary-actions" className="flex flex-wrap gap-2">
+                  <ActionButton icon={Play} label="启动" testId="action-start-button" busy={actionBusy === 'start'} disabled={(anyBusy && actionBusy !== 'start') || isRunning} onClick={() => runAction('start')} />
+                  <ActionButton icon={Power} label="停止" testId="action-stop-button" busy={actionBusy === 'stop'} disabled={(anyBusy && actionBusy !== 'stop') || !isRunning} onClick={() => runAction('stop')} variant="secondary" />
+                  <ActionButton icon={RefreshCw} label="重启" testId="action-restart-button" busy={actionBusy === 'restart'} disabled={(anyBusy && actionBusy !== 'restart') || !isRunning} onClick={() => runAction('restart')} variant="secondary" />
+                  <ActionButton icon={HardDriveDownload} label="备份" testId="action-backup-button" busy={actionBusy === 'backup'} disabled={anyBusy && actionBusy !== 'backup'} onClick={() => runAction('backup')} variant="secondary" />
+                  <ActionButton icon={ShieldCheck} label="查端口" testId="action-check-ports-button" busy={actionBusy === 'check-ports'} disabled={anyBusy && actionBusy !== 'check-ports'} onClick={() => runAction('check-ports')} variant="secondary" />
+                  <ActionButton icon={Trash2} label="重置世界" testId="action-reset-world-button" busy={actionBusy === 'reset-world'} disabled={(anyBusy && actionBusy !== 'reset-world') || isRunning} onClick={() => runAction('reset-world')} variant="secondary" />
+                  {data.target.type === 'native' && (
+                    <ActionButton icon={Download} label="安装/更新服务器" testId="action-install-server-button" busy={actionBusy === 'install-server'} disabled={(anyBusy && actionBusy !== 'install-server') || isRunning} onClick={() => runAction('install-server')} variant="secondary" />
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Action Log Strip — visible while action is running */}
@@ -162,6 +178,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
           <TabsList>
             <TabsTrigger value="status">状态</TabsTrigger>
             <TabsTrigger value="config">配置</TabsTrigger>
+            <TabsTrigger value="world">世界设置</TabsTrigger>
             <TabsTrigger value="mods" data-testid="mods-tab-trigger">模组</TabsTrigger>
             <TabsTrigger value="console">控制台</TabsTrigger>
             <TabsTrigger value="backups">备份</TabsTrigger>
@@ -172,6 +189,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
           <div className="space-y-4">
             {/* Boot Status Banner — prominent progress/error indicator */}
             <BootStatusBanner lines={lines} project={data} />
+            <ServerStatsWidget projectId={projectId} />
             <div className="grid gap-4 md:grid-cols-2">
               <RuntimePanel project={data} />
               <NetworkPanel project={data} busy={actionBusy === 'ensure-firewall'} onEnsureFirewall={() => runAction('ensure-firewall')} />
@@ -189,6 +207,9 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
         </TabsContent>
         <TabsContent value="config">
           <ProjectForm mode="edit" initialProject={data} onSubmit={saveConfig} onTestTarget={testTarget} busy={actionBusy !== null} />
+        </TabsContent>
+        <TabsContent value="world">
+          <WorldSettingsPanel project={data} onSave={saveConfig} busy={actionBusy !== null} />
         </TabsContent>
         <TabsContent value="mods">
           <ProjectModsWorkbench projectId={projectId} onProjectChanged={mutate} />
@@ -231,10 +252,12 @@ function ActionLogStrip({
 
   useEffect(() => {
     if (!isTaskActive && actionBusy === null && visible) {
+      // Keep failures visible until manually dismissed; auto-hide success after 8s
+      if (lastTaskEvent?.type === 'task.failed') return;
       const timer = setTimeout(() => setVisible(false), 8000);
       return () => clearTimeout(timer);
     }
-  }, [isTaskActive, actionBusy, visible]);
+  }, [isTaskActive, actionBusy, visible, lastTaskEvent]);
 
   useEffect(() => {
     if (actionBusy !== null) setDismissed(false);
@@ -299,16 +322,16 @@ function extractBootMilestones(lines: ConsoleLine[]): Milestone[] {
   const text = lines.map((l) => l.message).join('\n');
   const milestones: Milestone[] = [];
 
-  // steamcmd download progress
-  const downloadMatches = text.match(/progress: (\d+\.?\d*)/g);
-  if (downloadMatches) {
-    const lastPct = downloadMatches[downloadMatches.length - 1]?.match(/(\d+\.?\d*)/)?.[1];
-    const isDone = Number(lastPct) >= 99.9 || /fully installed/i.test(text);
+  // steamcmd download progress — take the MAX across all containers to avoid oscillation
+  const downloadPcts = Array.from(text.matchAll(/progress: (\d+\.?\d*)/g)).map((m) => Number(m[1]));
+  if (downloadPcts.length > 0) {
+    const maxPct = Math.max(...downloadPcts);
+    const isDone = maxPct >= 99.9 || /fully installed/i.test(text);
     milestones.push({
       id: 'download',
       label: isDone ? '游戏文件已就绪' : '下载游戏文件',
       status: isDone ? 'done' : 'active',
-      detail: isDone ? undefined : `${Math.floor(Number(lastPct ?? 0))}%`,
+      detail: isDone ? undefined : `${Math.floor(maxPct)}%`,
     });
   }
 
@@ -414,7 +437,6 @@ function BootStatusBanner({ lines, project }: { lines: ConsoleLine[]; project: P
   let bannerTone: 'success' | 'active' | 'error' | 'idle';
   let bannerTitle: string;
   let bannerDetail: string;
-  let regionNote = '';
 
   if (hasError) {
     bannerTone = 'error';
@@ -438,9 +460,6 @@ function BootStatusBanner({ lines, project }: { lines: ConsoleLine[]; project: P
     bannerDetail = region
       ? `已注册到 Klei 大厅 (${region})，可在游戏内搜索加入。`
       : '服务器已就绪，等待玩家加入。';
-    if (region) {
-      regionNote = `服务器注册在 ${region} 区域。游戏内搜索默认只显示你所在区域的服务器，跨区域玩家需要在搜索筛选中切换到对应区域才能找到。`;
-    }
   } else if (isRunning) {
     bannerTone = 'active';
     bannerTitle = '容器运行中';
@@ -483,13 +502,6 @@ function BootStatusBanner({ lines, project }: { lines: ConsoleLine[]; project: P
           <div className="text-sm font-semibold text-foreground">{bannerTitle}</div>
           <div className="mt-0.5 text-sm text-muted-foreground">{bannerDetail}</div>
 
-          {/* Region note for cross-region search */}
-          {regionNote && (
-            <div className="mt-2 rounded-xl border border-warning/20 bg-warning/5 px-3 py-2 text-xs leading-5 text-warning">
-              {regionNote}
-            </div>
-          )}
-
           {/* Download progress bar */}
           {milestones.some((m) => m.id === 'download' && m.status === 'active') && (() => {
             const dl = milestones.find((m) => m.id === 'download');
@@ -507,10 +519,10 @@ function BootStatusBanner({ lines, project }: { lines: ConsoleLine[]; project: P
             );
           })()}
 
-          {/* Milestone steps (when there's meaningful progress) */}
-          {milestones.length > 1 && (
+          {/* Milestone steps (when there's meaningful progress) — exclude download since it has its own bar */}
+          {milestones.filter((m) => m.id !== 'download').length > 0 && (
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-              {milestones.map((m) => (
+              {milestones.filter((m) => m.id !== 'download').map((m) => (
                 <div key={m.id} className="flex items-center gap-1.5 text-xs">
                   {m.status === 'done' && <CheckCircle2 className="size-3 text-success" />}
                   {m.status === 'active' && <LoaderCircle className="size-3 animate-spin text-primary" />}
@@ -549,9 +561,9 @@ function logSourceColor(source: ConsoleLine['source']) {
   }
 }
 
-function ActionButton({ icon: Icon, label, busy, onClick, variant = 'primary', testId }: { icon: typeof Play; label: string; busy: boolean; onClick: () => void; variant?: 'primary' | 'secondary'; testId?: string }) {
+function ActionButton({ icon: Icon, label, busy, disabled, onClick, variant = 'primary', testId }: { icon: typeof Play; label: string; busy: boolean; disabled?: boolean; onClick: () => void; variant?: 'primary' | 'secondary'; testId?: string }) {
   return (
-    <Button data-testid={testId} variant={variant} disabled={busy} onClick={onClick}>
+    <Button data-testid={testId} variant={variant} disabled={busy || disabled} onClick={onClick}>
       <Icon className="size-4" />
       {busy ? '处理中...' : label}
     </Button>
@@ -926,6 +938,113 @@ function TunnelPanel({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+const MASTER_PRESETS = [
+  { value: 'SURVIVAL_TOGETHER', label: 'SURVIVAL_TOGETHER（默认生存）' },
+  { value: 'SURVIVAL_TOGETHER_CLASSIC', label: 'SURVIVAL_TOGETHER_CLASSIC（经典）' },
+  { value: 'SURVIVAL_TOGETHER_PLUS', label: 'SURVIVAL_TOGETHER_PLUS（增强）' },
+  { value: 'MOD_MISSING_ONLY', label: 'MOD_MISSING_ONLY（模组缺失提示）' },
+];
+
+const CAVES_PRESETS = [
+  { value: 'DST_CAVE', label: 'DST_CAVE（默认洞穴）' },
+  { value: 'DST_CAVE_PLUS', label: 'DST_CAVE_PLUS（增强洞穴）' },
+];
+
+const selectCls =
+  'h-10 w-full rounded-xl border border-border bg-inset px-3 text-sm text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] outline-none transition-all hover:border-[hsl(var(--primary)/0.18)] focus:border-[hsl(var(--primary)/0.48)] focus:bg-panel focus:ring-4 focus:ring-[hsl(var(--primary)/0.1)]';
+
+function WorldSettingsPanel({ project, onSave, busy }: { project: ProjectDetail; onSave: (v: import('./project-form').ProjectFormValue) => Promise<void>; busy: boolean }) {
+  const [masterPreset, setMasterPreset] = useState(project.clusterConfig.masterWorldPreset ?? 'SURVIVAL_TOGETHER');
+  const [cavesPreset, setCavesPreset] = useState(project.clusterConfig.cavesWorldPreset ?? 'DST_CAVE');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const isDirty = masterPreset !== (project.clusterConfig.masterWorldPreset ?? 'SURVIVAL_TOGETHER') ||
+    cavesPreset !== (project.clusterConfig.cavesWorldPreset ?? 'DST_CAVE');
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onSave({
+        name: project.name,
+        slug: project.slug,
+        description: project.description,
+        target: project.target,
+        clusterConfig: { ...project.clusterConfig, masterWorldPreset: masterPreset, cavesWorldPreset: cavesPreset },
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const masterLua = `return {\n  override_enabled = true,\n  preset = "${masterPreset}",\n  overrides = {}\n}`;
+  const cavesLua = `return {\n  override_enabled = true,\n  preset = "${cavesPreset}",\n  overrides = {}\n}`;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>世界生成预设</CardTitle>
+          <CardDescription>选择主世界和洞穴的地图生成预设。修改后需重新部署并重置世界才会生效。</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-3">
+              <div className="text-sm font-medium text-foreground">Master（主世界）</div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">地图预设</label>
+                <select className={selectCls} value={masterPreset} onChange={(e) => setMasterPreset(e.target.value)}>
+                  {MASTER_PRESETS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="overflow-hidden rounded-xl border border-border">
+                <div className="border-b border-border bg-panel/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                  Master/worldgenoverride.lua
+                </div>
+                <pre className="bg-console px-4 py-3 text-[11px] leading-5 text-slate-200">{masterLua}</pre>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="text-sm font-medium text-foreground">Caves（洞穴）</div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">地图预设</label>
+                <select className={selectCls} value={cavesPreset} onChange={(e) => setCavesPreset(e.target.value)}>
+                  {CAVES_PRESETS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="overflow-hidden rounded-xl border border-border">
+                <div className="border-b border-border bg-panel/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                  Caves/worldgenoverride.lua
+                </div>
+                <pre className="bg-console px-4 py-3 text-[11px] leading-5 text-slate-200">{cavesLua}</pre>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-warning/20 bg-warning/5 px-4 py-3 text-sm text-warning">
+            修改世界预设后，需要先「保存」→「部署」→「重置世界」才能生效。重置世界会清除当前所有存档。
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="text-sm">
+              {saved && <span className="text-success">已保存</span>}
+            </div>
+            <Button variant={isDirty ? 'primary' : 'secondary'} disabled={busy || saving || !isDirty} onClick={handleSave}>
+              {saving ? '保存中...' : '保存世界设置'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

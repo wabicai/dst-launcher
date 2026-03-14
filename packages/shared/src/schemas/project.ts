@@ -16,6 +16,7 @@ export const ProjectActionSchema = z.enum([
   'install-server',
   'start-tunnel',
   'stop-tunnel',
+  'reset-world',
 ]);
 
 export const LocalTargetConfigSchema = z.object({
@@ -79,6 +80,8 @@ export const ClusterConfigSchema = z.object({
   modCollection: z.string().default(''),
   modIds: z.array(z.string()).default([]),
   adminIds: z.array(z.string()).default([]),
+  masterWorldPreset: z.string().default('SURVIVAL_TOGETHER'),
+  cavesWorldPreset: z.string().default('DST_CAVE'),
   master: ShardConfigSchema,
   caves: ShardConfigSchema,
 });
@@ -103,6 +106,7 @@ export const ModCatalogItemSchema = z.object({
   favorited: z.number().int().min(0).default(0),
   views: z.number().int().min(0).default(0),
   collectionMemberIds: z.array(z.string()).default([]),
+  serverSide: z.boolean().default(false),
 });
 
 export const ModSearchResponseSchema = z.object({
@@ -324,3 +328,12 @@ export type TaskRun = z.infer<typeof TaskRunSchema>;
 export type ProjectDetail = z.infer<typeof ProjectDetailSchema>;
 export type TargetTestRequest = z.infer<typeof TargetTestRequestSchema>;
 export type TargetTestResponse = z.infer<typeof TargetTestResponseSchema>;
+
+export const ServerStatsSchema = z.object({
+  cpu: z.object({ loadAvg1: z.number(), cpuCount: z.number() }),
+  memory: z.object({ total: z.number(), used: z.number() }),
+  swap: z.object({ total: z.number(), used: z.number() }),
+  disk: z.object({ total: z.number(), used: z.number(), path: z.string() }),
+  collectedAt: z.string(),
+});
+export type ServerStats = z.infer<typeof ServerStatsSchema>;

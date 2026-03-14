@@ -60,8 +60,8 @@ export class SshDockerAdapter implements RuntimeAdapter {
     const preparePermissions = await runCommand('ssh', this.sshArgs([
       `mkdir -p ${shellPath(path.posix.join(remotePath, 'data'))}`,
       `mkdir -p ${shellPath(path.posix.join(remotePath, 'backups'))}`,
-      `chmod -R 0755 ${shellPath(path.posix.join(remotePath, 'data'))}`,
-      `chmod -R 0755 ${shellPath(path.posix.join(remotePath, 'backups'))}`,
+      `chmod -R 0777 ${shellPath(path.posix.join(remotePath, 'data'))}`,
+      `chmod -R 0777 ${shellPath(path.posix.join(remotePath, 'backups'))}`,
     ].join(' && ')));
     if (!preparePermissions.ok) {
       throw new Error(preparePermissions.stderr || '远程目录权限初始化失败');

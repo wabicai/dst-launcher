@@ -89,7 +89,12 @@ export function ProjectForm({ mode, initialProject, onSubmit, onTestTarget, busy
   }, [saveStatus]);
 
   const preview = useMemo(() => renderConfigPreview(state.clusterConfig), [state.clusterConfig]);
+  const isDockerMode = state.target.type === 'local' || state.target.type === 'ssh';
   const requiredUdpPorts = useMemo(() => {
+    if (state.target.type === 'local' || state.target.type === 'ssh') {
+      // Docker image uses fixed ports regardless of clusterConfig
+      return [11000, 27016, 8766, 10999, 27017, 8767];
+    }
     const ports = [
       state.clusterConfig.master.serverPort,
       state.clusterConfig.master.masterServerPort,
@@ -99,7 +104,7 @@ export function ProjectForm({ mode, initialProject, onSubmit, onTestTarget, busy
       state.clusterConfig.caves.authenticationPort,
     ];
     return Array.from(new Set(ports));
-  }, [state.clusterConfig]);
+  }, [state.clusterConfig, state.target.type]);
 
   const completionHints = useMemo(() => {
     const issues: string[] = [];
@@ -452,10 +457,18 @@ export function ProjectForm({ mode, initialProject, onSubmit, onTestTarget, busy
 
         {/* 网络与端口 */}
         <FormSection icon={Shield} title="网络与端口">
-          <div className="grid gap-4 xl:grid-cols-2">
-            <ShardPortFields title="Master" shard={state.clusterConfig.master} onChange={(patch) => updateShard('master', patch)} />
-            <ShardPortFields title="Caves" shard={state.clusterConfig.caves} onChange={(patch) => updateShard('caves', patch)} />
-          </div>
+          {isDockerMode ? (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">Docker 模式使用固定端口</span>：端口由镜像内置，无法自定义。<br />
+              Master：<span className="font-mono text-foreground">11000/udp</span>（游戏）、<span className="font-mono text-foreground">27016/udp</span>（Steam）、<span className="font-mono text-foreground">8766/udp</span>（认证）<br />
+              Caves：<span className="font-mono text-foreground">10999/udp</span>（游戏）、<span className="font-mono text-foreground">27017/udp</span>（Steam）、<span className="font-mono text-foreground">8767/udp</span>（认证）
+            </div>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <ShardPortFields title="Master" shard={state.clusterConfig.master} onChange={(patch) => updateShard('master', patch)} />
+              <ShardPortFields title="Caves" shard={state.clusterConfig.caves} onChange={(patch) => updateShard('caves', patch)} />
+            </div>
+          )}
         </FormSection>
 
         {/* 底部保存栏 */}

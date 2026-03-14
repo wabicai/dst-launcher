@@ -23,6 +23,8 @@ export function createDefaultClusterConfig(projectName = DEFAULT_PROJECT_NAME): 
     modCollection: '',
     modIds: [],
     adminIds: [],
+    masterWorldPreset: 'SURVIVAL_TOGETHER',
+    cavesWorldPreset: 'DST_CAVE',
     master: {
       shardName: 'Master',
       isMaster: true,

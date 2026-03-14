@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 
 const rootDir = '/Volumes/ai-work/dst-launcher';
-const port = process.env.PORT || '3000';
+const port = String(await findFreePort(Number(process.env.PORT || '3747')));
 const nextDevServerUrl = `http://127.0.0.1:${port}`;
 const desktopMainFile = path.join(rootDir, 'apps/desktop/dist/main.js');
 const webDir = path.join(rootDir, 'apps/web');
@@ -18,6 +18,14 @@ try {
   await runStep('SHARED', path.join(sharedDir, 'node_modules/.bin/tsup'), ['src/index.ts', '--format', 'esm', '--dts', '--clean'], {
     cwd: sharedDir,
   });
+
+  const sharedWatch = spawnLogged(
+    'SHARED:WATCH',
+    path.join(sharedDir, 'node_modules/.bin/tsup'),
+    ['src/index.ts', '--format', 'esm', '--dts', '--watch'],
+    { cwd: sharedDir },
+  );
+  children.set('SHARED:WATCH', sharedWatch);
 
   const web = spawnLogged('WEB', path.join(webDir, 'node_modules/.bin/next'), ['dev', '--port', port], {
     cwd: webDir,
@@ -250,4 +258,26 @@ function formatPrefix(name) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function findFreePort(preferredPort, maxTries = 20) {
+  return new Promise((resolve, reject) => {
+    let attempt = preferredPort;
+    const tryNext = () => {
+      const server = net.createServer();
+      server.once('error', () => {
+        attempt += 1;
+        if (attempt >= preferredPort + maxTries) {
+          reject(new Error(`找不到空闲端口（已尝试 ${preferredPort}–${attempt - 1}）`));
+        } else {
+          tryNext();
+        }
+      });
+      server.once('listening', () => {
+        server.close(() => resolve(attempt));
+      });
+      server.listen(attempt, '127.0.0.1');
+    };
+    tryNext();
+  });
 }

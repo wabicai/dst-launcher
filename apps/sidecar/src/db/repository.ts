@@ -469,8 +469,11 @@ export class ProjectRepository {
     const collectionMemberIds = collectionCatalog?.collectionMemberIds ?? [];
     const collectionMembers = collectionMemberIds.map((workshopId) => getCatalog(cacheMap, workshopId, 'mod'));
 
-    const standaloneRows = rows.filter((item) => item.type === 'mod' && item.enabled === 1 && !collectionMemberIds.includes(item.workshopId));
-    const standaloneEntries = standaloneRows.map((item) => this.toProjectModEntry(projectId, item, getCatalog(cacheMap, item.workshopId, 'mod'), []));
+    // All standalone rows (for UI display), enabled ones (for config generation)
+    const allStandaloneRows = rows.filter((item) => item.type === 'mod' && !collectionMemberIds.includes(item.workshopId));
+    const enabledStandaloneRows = allStandaloneRows.filter((item) => item.enabled === 1);
+    const allStandaloneEntries = allStandaloneRows.map((item) => this.toProjectModEntry(projectId, item, getCatalog(cacheMap, item.workshopId, 'mod'), []));
+    const enabledStandaloneEntries = enabledStandaloneRows.map((item) => this.toProjectModEntry(projectId, item, getCatalog(cacheMap, item.workshopId, 'mod'), []));
     const collectionEntry = collectionRow && collectionCatalog
       ? this.toProjectModEntry(projectId, collectionRow, collectionCatalog, collectionMembers)
       : null;
@@ -478,15 +481,15 @@ export class ProjectRepository {
     const previewConfig: ClusterConfig = {
       ...clusterConfig,
       modCollection: collectionCatalog?.workshopId ?? '',
-      modIds: standaloneEntries.map((item) => item.workshopId),
+      modIds: enabledStandaloneEntries.map((item) => item.workshopId),
     };
     const resolvedModIds = uniqueStrings([...collectionMemberIds, ...previewConfig.modIds]);
 
     return {
       projectId,
-      summary: buildProjectModsSummary(collectionEntry, standaloneEntries, resolvedModIds),
+      summary: buildProjectModsSummary(collectionEntry, enabledStandaloneEntries, resolvedModIds),
       collection: collectionEntry,
-      entries: standaloneEntries,
+      entries: allStandaloneEntries,
       preview: {
         modsSetup: renderModsSetup(previewConfig),
         collectionId: previewConfig.modCollection,
@@ -532,36 +535,43 @@ export class ProjectRepository {
         order: entry.order ?? index,
       }),
     );
-    const deduped = new Map<string, ProjectModEntryInput>();
-
+    // First pass: process enabled entries (deduplicated)
+    const enabledDeduped = new Map<string, ProjectModEntryInput>();
     for (const entry of parsedEntries.sort((left, right) => left.order - right.order)) {
-      if (!entry.enabled) {
-        continue;
-      }
+      if (!entry.enabled) continue;
       if (entry.type === 'collection') {
-        if (!deduped.has(`collection:${entry.workshopId}`) && !Array.from(deduped.values()).some((item) => item.type === 'collection')) {
-          deduped.set(`collection:${entry.workshopId}`, { ...entry, order: deduped.size });
+        if (!enabledDeduped.has(`collection:${entry.workshopId}`) && !Array.from(enabledDeduped.values()).some((item) => item.type === 'collection')) {
+          enabledDeduped.set(`collection:${entry.workshopId}`, { ...entry, order: enabledDeduped.size });
         }
         continue;
       }
-
       const key = `mod:${entry.workshopId}`;
-      if (!deduped.has(key)) {
-        deduped.set(key, { ...entry, order: deduped.size });
+      if (!enabledDeduped.has(key)) {
+        enabledDeduped.set(key, { ...entry, order: enabledDeduped.size });
       }
     }
 
-    const collectionEntry = Array.from(deduped.values()).find((entry) => entry.type === 'collection');
-    if (!collectionEntry) {
-      return Array.from(deduped.values());
+    // Second pass: add disabled entries that don't conflict with enabled ones
+    const disabledEntries: ProjectModEntryInput[] = [];
+    for (const entry of parsedEntries.sort((left, right) => left.order - right.order)) {
+      if (entry.enabled) continue;
+      const key = entry.type === 'collection' ? `collection:${entry.workshopId}` : `mod:${entry.workshopId}`;
+      if (!enabledDeduped.has(key)) {
+        disabledEntries.push({ ...entry });
+      }
     }
 
-    const collectionCache = (await this.getCachedMods([collectionEntry.workshopId]))[0];
+    const collectionEntry = Array.from(enabledDeduped.values()).find((entry) => entry.type === 'collection');
+    const collectionCache = collectionEntry ? (await this.getCachedMods([collectionEntry.workshopId]))[0] : undefined;
     const collectionMemberIds = new Set(collectionCache?.collectionMemberIds ?? []);
 
-    return Array.from(deduped.values())
-      .filter((entry) => entry.type === 'collection' || !collectionMemberIds.has(entry.workshopId))
-      .map((entry, index) => ({ ...entry, order: index }));
+    const enabledResult = Array.from(enabledDeduped.values())
+      .filter((entry) => entry.type === 'collection' || !collectionMemberIds.has(entry.workshopId));
+
+    return [
+      ...enabledResult,
+      ...disabledEntries.filter((entry) => !collectionMemberIds.has(entry.workshopId)),
+    ].map((entry, index) => ({ ...entry, order: index }));
   }
 
   private async getProjectRows(projectId: string) {

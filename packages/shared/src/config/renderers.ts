@@ -6,7 +6,10 @@ function section(title: string, values: Record<string, string | number | boolean
   return [`[${title}]`, ...lines, ''].join('\n');
 }
 
-export function renderClusterIni(config: ClusterConfig): string {
+export function renderClusterIni(
+  config: ClusterConfig,
+  options?: { masterIp?: string },
+): string {
   return [
     section('GAMEPLAY', {
       game_mode: config.gameMode,
@@ -24,6 +27,12 @@ export function renderClusterIni(config: ClusterConfig): string {
     }),
     section('MISC', {
       console_enabled: true,
+    }),
+    section('SHARD', {
+      shard_enabled: true,
+      bind_ip: '0.0.0.0',
+      master_ip: options?.masterIp ?? '127.0.0.1',
+      cluster_key: 'dst-launcher-default-key',
     }),
   ]
     .join('\n')
@@ -64,6 +73,21 @@ export function renderShardServerIni(
     .trim();
 }
 
+export function renderModoverrides(workshopIds: string[]): string {
+  if (workshopIds.length === 0) {
+    return 'return {}\n';
+  }
+  const lines = workshopIds
+    .map((id) => id.trim())
+    .filter((id) => /^\d+$/.test(id))
+    .map((id) => `  ["workshop-${id}"] = { enabled = true },`);
+  return `return {\n${lines.join('\n')}\n}\n`;
+}
+
+export function renderWorldgenOverride(preset: string): string {
+  return `return {\n  override_enabled = true,\n  preset = "${preset}",\n  overrides = {}\n}\n`;
+}
+
 export function renderAdminList(config: ClusterConfig): string {
   const ids = config.adminIds.map((id) => id.trim()).filter(Boolean);
   return ids.length > 0 ? `${ids.join('\n')}\n` : '';
@@ -94,14 +118,18 @@ export function renderConfigPreview(
 ) {
   const cavesMasterIp = options?.targetType === 'native' ? '127.0.0.1' : 'dst_master';
   return {
-    'cluster.ini': renderClusterIni(config),
+    'cluster.ini': renderClusterIni(config, { masterIp: cavesMasterIp }),
     'cluster_token.txt': config.clusterToken,
     'Master/server.ini': renderShardServerIni(config.master),
     'Caves/server.ini': renderShardServerIni(config.caves, {
       masterIp: cavesMasterIp,
       masterPort: config.master.masterServerPort,
     }),
+    'Master/worldgenoverride.lua': renderWorldgenOverride(config.masterWorldPreset),
+    'Caves/worldgenoverride.lua': renderWorldgenOverride(config.cavesWorldPreset),
     'dedicated_server_mods_setup.lua': renderModsSetup(config),
+    'Master/modoverrides.lua': renderModoverrides(config.modIds),
+    'Caves/modoverrides.lua': renderModoverrides(config.modIds),
     'adminlist.txt': renderAdminList(config),
   };
 }

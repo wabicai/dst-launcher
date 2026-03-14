@@ -7,7 +7,6 @@ export interface ComposeGenerationInput {
 
 export function renderComposeFile(input: ComposeGenerationInput): string {
   const { slug, clusterConfig } = input;
-  const modCollection = clusterConfig.modCollection.trim();
 
   return `name: ${slug}
 services:
@@ -31,17 +30,20 @@ services:
       SHARD_NAME: ${yamlString(clusterConfig.master.shardName)}
       SHARD_IS_MASTER: true
       KEEP_CLUSTER_CONFIG: true
-      MOD_COLLECTION: ${yamlString(modCollection)}
       CPU_MHZ: 1000
     ports:
-      - '${clusterConfig.master.serverPort}:${clusterConfig.master.serverPort}/udp'
-      - '${clusterConfig.master.masterServerPort}:${clusterConfig.master.masterServerPort}/udp'
-      - '${clusterConfig.master.authenticationPort}:${clusterConfig.master.authenticationPort}/udp'
+      - '11000:11000/udp'
+      - '27016:27016/udp'
+      - '8766:8766/udp'
+    entrypoint: ['/bin/bash', '/home/dst/config/launcher.sh']
+    command: []
     volumes:
       - ../data/server:/home/dst/dst_server
       - ../data/cluster:/data
+      - ../config/launcher.sh:/home/dst/config/launcher.sh
+      - ../config/mods_setup.lua:/home/dst/config/mods_setup.lua
     healthcheck:
-      test: ['CMD-SHELL', 'test -d /data']
+      test: ['CMD-SHELL', 'test -d /data/${clusterConfig.clusterName}']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -69,15 +71,18 @@ services:
       SHARD_NAME: ${yamlString(clusterConfig.caves.shardName)}
       SHARD_IS_MASTER: false
       KEEP_CLUSTER_CONFIG: true
-      MOD_COLLECTION: ${yamlString(modCollection)}
       CPU_MHZ: 1000
     ports:
-      - '${clusterConfig.caves.serverPort}:${clusterConfig.caves.serverPort}/udp'
-      - '${clusterConfig.caves.masterServerPort}:${clusterConfig.caves.masterServerPort}/udp'
-      - '${clusterConfig.caves.authenticationPort}:${clusterConfig.caves.authenticationPort}/udp'
+      - '10999:10999/udp'
+      - '27017:27016/udp'
+      - '8767:8766/udp'
+    entrypoint: ['/bin/bash', '/home/dst/config/launcher.sh']
+    command: []
     volumes:
       - ../data/server:/home/dst/dst_server
       - ../data/cluster:/data
+      - ../config/launcher.sh:/home/dst/config/launcher.sh
+      - ../config/mods_setup.lua:/home/dst/config/mods_setup.lua
 
   dst-updater:
     image: alpine:3.21

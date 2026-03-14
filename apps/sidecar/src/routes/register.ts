@@ -107,6 +107,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get('/projects/:id/stats', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      return await projectService.getProjectStats(id);
+    } catch (error) {
+      reply.code(500);
+      return { message: error instanceof Error ? error.message : '获取服务器状态失败' };
+    }
+  });
+
   app.get('/projects/:id/mods', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
