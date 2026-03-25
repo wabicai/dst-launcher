@@ -17,6 +17,9 @@ services:
     restart: unless-stopped
     stdin_open: true
     tty: true
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       CLUSTER_NAME: ${yamlString(clusterConfig.clusterName)}
       CLUSTER_DESCRIPTION: ${yamlString(clusterConfig.clusterDescription)}
@@ -55,9 +58,12 @@ services:
     restart: unless-stopped
     stdin_open: true
     tty: true
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     depends_on:
       dst_master:
-        condition: service_started
+        condition: service_healthy
     environment:
       CLUSTER_NAME: ${yamlString(clusterConfig.clusterName)}
       CLUSTER_DESCRIPTION: ${yamlString(clusterConfig.clusterDescription)}

@@ -52,14 +52,45 @@ ulimit -n 2048
 
 STEAMCMD=/home/dst/linux32/steamcmd
 MAGIC_RESTART=42
+MAX_RETRIES=5
+RETRY_DELAY=10
 
-# Run SteamCMD binary directly (no validate — preserves dedicated_server_mods_setup.lua)
-while true; do
-  \$STEAMCMD +@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1 \\
-    +force_install_dir /home/dst/dst_server +login anonymous +app_update 343050 +quit
-  STATUS=\$?
-  [ \$STATUS -ne \$MAGIC_RESTART ] && break
+echo "[DST Launcher] Starting SteamCMD update..."
+
+# Retry loop — SteamCMD can fail transiently (DNS not ready, network blip, etc.)
+for attempt in \$(seq 1 \$MAX_RETRIES); do
+  echo "[DST Launcher] SteamCMD attempt \$attempt/\$MAX_RETRIES"
+
+  # Inner loop handles MAGIC_RESTART (exit code 42 = SteamCMD self-update)
+  while true; do
+    \$STEAMCMD +@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1 \\
+      +force_install_dir /home/dst/dst_server +login anonymous +app_update 343050 +quit
+    STATUS=\$?
+    echo "[DST Launcher] SteamCMD exited with status \$STATUS"
+    [ \$STATUS -ne \$MAGIC_RESTART ] && break
+    echo "[DST Launcher] SteamCMD requested restart (self-update), restarting..."
+  done
+
+  # Verify the game was actually downloaded
+  if [ -d /home/dst/dst_server/bin ]; then
+    echo "[DST Launcher] DST server downloaded successfully."
+    break
+  fi
+
+  echo "[DST Launcher] ERROR: /home/dst/dst_server/bin not found (attempt \$attempt/\$MAX_RETRIES)"
+  if [ \$attempt -lt \$MAX_RETRIES ]; then
+    echo "[DST Launcher] Retrying in \${RETRY_DELAY}s..."
+    sleep \$RETRY_DELAY
+    RETRY_DELAY=\$((RETRY_DELAY * 2))
+  fi
 done
+
+# If download still failed after all retries, exit so Docker can restart us (with backoff)
+if [ ! -d /home/dst/dst_server/bin ]; then
+  echo "[DST Launcher] FATAL: Failed to download DST server after \$MAX_RETRIES attempts."
+  sleep 30
+  exit 1
+fi
 
 # Write our custom mods setup AFTER SteamCMD (validate can no longer reset it)
 if [ -f /home/dst/config/mods_setup.lua ]; then
@@ -72,6 +103,7 @@ printf '#!/bin/bash\\n# steamcmd already ran via DST Launcher init\\nexit 0\\n' 
 chmod +x /home/dst/steamcmd.sh
 
 # Run the original entrypoint (cluster config, shard setup, DST server start)
+echo "[DST Launcher] Handing off to entrypoint.sh..."
 exec /home/dst/data/entrypoint.sh
 `;
 
