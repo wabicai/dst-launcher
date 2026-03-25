@@ -13,13 +13,19 @@ export interface PortCheckResult {
   detail: string;
 }
 
+/** Optional line-by-line streaming callbacks for long-running operations. */
+export interface StreamingCallbacks {
+  onStdout?: (line: string) => void;
+  onStderr?: (line: string) => void;
+}
+
 export interface RuntimeAdapter {
   testConnection(): Promise<TargetTestResponse>;
-  syncInstance?(localRoot: string, remoteConfig: SshTargetConfig): Promise<void>;
-  composeUp(composeFile: string, slug: string): Promise<string>;
-  composeStop(composeFile: string, slug: string): Promise<string>;
-  composeRestart(composeFile: string, slug: string): Promise<string>;
-  composeUpdate(composeFile: string, slug: string): Promise<string>;
+  syncInstance?(localRoot: string, remoteConfig: SshTargetConfig, callbacks?: StreamingCallbacks): Promise<void>;
+  composeUp(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string>;
+  composeStop(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string>;
+  composeRestart(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string>;
+  composeUpdate(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string>;
   composePs(composeFile: string, slug: string): Promise<RuntimeContainerInfo[]>;
   streamComposeLogs(
     composeFile: string,
@@ -36,10 +42,7 @@ export interface RuntimeAdapter {
   prefetchMods(
     composeFile: string,
     slug: string,
-    callbacks: {
-      onStdout?: (line: string) => void;
-      onStderr?: (line: string) => void;
-    },
+    callbacks: StreamingCallbacks,
   ): Promise<string>;
   createRemoteBackup?(remotePath: string, backupFile: string): Promise<void>;
 }

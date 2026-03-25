@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { streamCommand, runCommand, runStreamingCommand } from '../utils/command';
 import { parseComposePsOutput } from './compose-ps';
-import type { RuntimeAdapter, RuntimeContainerInfo, PortCheckResult } from './base';
+import type { RuntimeAdapter, RuntimeContainerInfo, PortCheckResult, StreamingCallbacks } from './base';
 import {
   createUfwNetworkStatus,
   createUnknownNetworkStatus,
@@ -42,17 +42,18 @@ export class SshDockerAdapter implements RuntimeAdapter {
     };
   }
 
-  async syncInstance(localRoot: string, remoteConfig: SshTargetConfig): Promise<void> {
+  async syncInstance(localRoot: string, remoteConfig: SshTargetConfig, callbacks?: StreamingCallbacks): Promise<void> {
     const remotePath = remoteConfig.remotePath;
     await runCommand('ssh', this.sshArgs(`mkdir -p ${shellPath(remotePath)}`));
-    const result = await runCommand('rsync', [
+    callbacks?.onStdout?.(`rsync → ${remoteConfig.host}:${remotePath}`);
+    const result = await runStreamingCommand('rsync', [
       '-az',
       '--delete',
       '-e',
       `ssh -i ${shellEscape(remoteConfig.privateKeyPath)} -p ${String(remoteConfig.port)}`,
       `${path.resolve(localRoot)}/`,
       `${remoteConfig.username}@${remoteConfig.host}:${remotePath}/`,
-    ]);
+    ], {}, callbacks);
     if (!result.ok) {
       throw new Error(result.stderr || '同步远程实例目录失败');
     }
@@ -68,30 +69,37 @@ export class SshDockerAdapter implements RuntimeAdapter {
     }
   }
 
-  async composeUp(composeFile: string, slug: string): Promise<string> {
-    return this.runCompose(composeFile, slug, 'up -d --remove-orphans');
+  async composeUp(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string> {
+    return this.runCompose(composeFile, slug, 'up -d --remove-orphans', callbacks);
   }
 
-  async composeStop(composeFile: string, slug: string): Promise<string> {
-    return this.runCompose(composeFile, slug, 'stop');
+  async composeStop(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string> {
+    return this.runCompose(composeFile, slug, 'stop', callbacks);
   }
 
-  async composeRestart(composeFile: string, slug: string): Promise<string> {
-    return this.runCompose(composeFile, slug, 'restart');
+  async composeRestart(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string> {
+    return this.runCompose(composeFile, slug, 'restart', callbacks);
   }
 
-  async composeUpdate(composeFile: string, slug: string): Promise<string> {
+  async composeUpdate(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string> {
     const relativeFile = path.basename(composeFile);
-    const command = [
+    const pullCmd = [
       `cd ${shellPath(path.dirname(this.resolveRemoteComposePath(composeFile)))}`,
       `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} pull`,
+    ].join(' && ');
+    const pull = await runStreamingCommand('ssh', this.sshArgs(pullCmd), {}, callbacks);
+    if (!pull.ok) {
+      throw new Error(pull.stderr || '远程拉取镜像失败');
+    }
+    const upCmd = [
+      `cd ${shellPath(path.dirname(this.resolveRemoteComposePath(composeFile)))}`,
       `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} up -d --force-recreate`,
     ].join(' && ');
-    const result = await runCommand('ssh', this.sshArgs(command));
-    if (!result.ok) {
-      throw new Error(result.stderr || '远程更新失败');
+    const up = await runStreamingCommand('ssh', this.sshArgs(upCmd), {}, callbacks);
+    if (!up.ok) {
+      throw new Error(up.stderr || '远程更新失败');
     }
-    return result.stdout.trim() || '远程容器已更新';
+    return `${pull.stdout}\n${up.stdout}`.trim() || '远程容器已更新';
   }
 
   async composePs(composeFile: string, slug: string): Promise<RuntimeContainerInfo[]> {
@@ -200,8 +208,8 @@ export class SshDockerAdapter implements RuntimeAdapter {
     }
   }
 
-  private async runCompose(composeFile: string, slug: string, args: string) {
-    const result = await runCommand('ssh', this.sshArgs(this.composeShell(composeFile, slug, args)));
+  private async runCompose(composeFile: string, slug: string, args: string, callbacks?: StreamingCallbacks) {
+    const result = await runStreamingCommand('ssh', this.sshArgs(this.composeShell(composeFile, slug, args)), {}, callbacks);
     if (!result.ok) {
       throw new Error(result.stderr || '远程 Docker Compose 命令失败');
     }

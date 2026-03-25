@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { runStreamingCommand, streamCommand, runCommand } from '../utils/command';
 import { parseComposePsOutput } from './compose-ps';
-import type { RuntimeAdapter, RuntimeContainerInfo, PortCheckResult } from './base';
+import type { RuntimeAdapter, RuntimeContainerInfo, PortCheckResult, StreamingCallbacks } from './base';
 import type { LocalTargetConfig, ProjectNetwork, TargetConfig, TargetTestResponse } from '@dst-launcher/shared';
 import { createLocalNetworkStatus } from './firewall';
 
@@ -21,28 +21,28 @@ export class LocalDockerAdapter implements RuntimeAdapter {
     };
   }
 
-  async composeUp(composeFile: string, slug: string): Promise<string> {
-    const result = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'up', '-d', '--remove-orphans'));
+  async composeUp(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string> {
+    const result = await runStreamingCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'up', '-d', '--remove-orphans'), {}, callbacks);
     if (!result.ok) throw new Error(result.stderr || '启动容器失败');
     return result.stdout.trim() || '容器已启动';
   }
 
-  async composeStop(composeFile: string, slug: string): Promise<string> {
-    const result = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'stop'));
+  async composeStop(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string> {
+    const result = await runStreamingCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'stop'), {}, callbacks);
     if (!result.ok) throw new Error(result.stderr || '停止容器失败');
     return result.stdout.trim() || '容器已停止';
   }
 
-  async composeRestart(composeFile: string, slug: string): Promise<string> {
-    const result = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'restart'));
+  async composeRestart(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string> {
+    const result = await runStreamingCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'restart'), {}, callbacks);
     if (!result.ok) throw new Error(result.stderr || '重启容器失败');
     return result.stdout.trim() || '容器已重启';
   }
 
-  async composeUpdate(composeFile: string, slug: string): Promise<string> {
-    const pull = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'pull'));
+  async composeUpdate(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string> {
+    const pull = await runStreamingCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'pull'), {}, callbacks);
     if (!pull.ok) throw new Error(pull.stderr || '拉取镜像失败');
-    const up = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'up', '-d', '--force-recreate'));
+    const up = await runStreamingCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'up', '-d', '--force-recreate'), {}, callbacks);
     if (!up.ok) throw new Error(up.stderr || '更新容器失败');
     return `${pull.stdout}\n${up.stdout}`.trim();
   }

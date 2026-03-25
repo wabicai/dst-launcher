@@ -240,6 +240,16 @@ export class ProjectService {
       timestamp: new Date().toISOString(),
     });
 
+    // Streaming callbacks that pipe every line of stdout/stderr to the console in real-time.
+    const logCallbacks = {
+      onStdout: (line: string) => {
+        this.publishActionLog(projectId, line, 'stdout');
+      },
+      onStderr: (line: string) => {
+        this.publishActionLog(projectId, line, 'stderr');
+      },
+    };
+
     try {
       const paths = resolveInstancePaths(this.paths.instancesDir, project.slug);
       const ports = getProjectPorts(project.clusterConfig, project.target.type);
@@ -252,7 +262,7 @@ export class ProjectService {
             networkMessage = await adapter.ensureFirewall(project.target, ports, project.slug);
           }
           await this.prepareProjectFiles(projectId);
-          await this.syncIfNeeded(project.target, paths.root, adapter);
+          await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
           await this.repository.touchDeployment(projectId);
           message = joinMessages(
             networkMessage,
@@ -267,12 +277,13 @@ export class ProjectService {
             networkMessage = await adapter.ensureFirewall(project.target, ports, project.slug);
           }
           await this.prepareProjectFiles(projectId);
-          await this.syncIfNeeded(project.target, paths.root, adapter);
+          await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
           message = joinMessages(
             networkMessage,
             await adapter.composeUp(
               project.target.type === 'native' ? '' : paths.composeFile,
               project.slug,
+              logCallbacks,
             ),
           );
           await this.repository.setProjectStatus(projectId, 'running');
@@ -280,23 +291,23 @@ export class ProjectService {
         }
         case 'stop': {
           const cf = project.target.type === 'native' ? '' : paths.composeFile;
-          message = await adapter.composeStop(cf, project.slug);
+          message = await adapter.composeStop(cf, project.slug, logCallbacks);
           await this.repository.setProjectStatus(projectId, 'stopped');
           break;
         }
         case 'restart': {
           await this.prepareProjectFiles(projectId);
-          await this.syncIfNeeded(project.target, paths.root, adapter);
+          await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
           const cf = project.target.type === 'native' ? '' : paths.composeFile;
-          message = await adapter.composeRestart(cf, project.slug);
+          message = await adapter.composeRestart(cf, project.slug, logCallbacks);
           await this.repository.setProjectStatus(projectId, 'running');
           break;
         }
         case 'update': {
           await this.prepareProjectFiles(projectId);
-          await this.syncIfNeeded(project.target, paths.root, adapter);
+          await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
           const cf = project.target.type === 'native' ? '' : paths.composeFile;
-          message = await adapter.composeUpdate(cf, project.slug);
+          message = await adapter.composeUpdate(cf, project.slug, logCallbacks);
           await this.repository.setProjectStatus(projectId, 'running');
           break;
         }
@@ -366,7 +377,7 @@ export class ProjectService {
           const cf = project.target.type === 'native' ? '' : paths.composeFile;
           const clusterName = project.clusterConfig.clusterName;
           // Stop containers first
-          await adapter.composeStop(cf, project.slug);
+          await adapter.composeStop(cf, project.slug, logCallbacks);
           // Delete save directories based on target type
           if (project.target.type === 'ssh') {
             const { runCommand } = await import('../utils/command');
@@ -389,8 +400,8 @@ export class ProjectService {
           }
           // Restart server
           await this.prepareProjectFiles(projectId);
-          await this.syncIfNeeded(project.target, paths.root, adapter);
-          message = await adapter.composeUp(cf, project.slug);
+          await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
+          message = await adapter.composeUp(cf, project.slug, logCallbacks);
           message = '世界已重置并重新启动。';
           await this.repository.setProjectStatus(projectId, 'running');
           break;
@@ -403,7 +414,7 @@ export class ProjectService {
           }
 
           await this.prepareProjectFiles(projectId);
-          await this.syncIfNeeded(project.target, paths.root, adapter);
+          await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
           const runtime = await this.getRuntime(project.target, project.slug, paths.composeFile);
           if (runtime.containers.some((item) => item.state === 'running')) {
             throw new Error('项目当前正在运行，请先停止服务，再执行模组预拉取。');
@@ -587,9 +598,9 @@ export class ProjectService {
     }
   }
 
-  private async syncIfNeeded(target: TargetConfig, localRoot: string, adapter: RuntimeAdapter) {
+  private async syncIfNeeded(target: TargetConfig, localRoot: string, adapter: RuntimeAdapter, callbacks?: import('../adapters/base').StreamingCallbacks) {
     if (target.type === 'ssh' && adapter.syncInstance) {
-      await adapter.syncInstance(localRoot, target);
+      await adapter.syncInstance(localRoot, target, callbacks);
     }
   }
 

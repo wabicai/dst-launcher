@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { runCommand, runStreamingCommand, streamCommand } from '../utils/command';
 import { nativeProcessManager } from './native-process-manager';
 import { createLocalNetworkStatus } from './firewall';
-import type { RuntimeAdapter, RuntimeContainerInfo, PortCheckResult } from './base';
+import type { RuntimeAdapter, RuntimeContainerInfo, PortCheckResult, StreamingCallbacks } from './base';
 import type { NativeTargetConfig, ProjectNetwork, TargetConfig, TargetTestResponse } from '@dst-launcher/shared';
 
 const STEAMCMD_URL = 'https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz';
@@ -78,7 +78,7 @@ export class NativeAdapter implements RuntimeAdapter {
     return '服务器安装/更新完成';
   }
 
-  async composeUp(_composeFile: string, slug: string): Promise<string> {
+  async composeUp(_composeFile: string, slug: string, _callbacks?: StreamingCallbacks): Promise<string> {
     if (!existsSync(this.instancePaths.nativeBinary)) {
       throw new Error('DST 服务端未安装，请先执行「安装/更新服务器」');
     }
@@ -112,18 +112,18 @@ export class NativeAdapter implements RuntimeAdapter {
     return 'Master + Caves 进程已启动';
   }
 
-  async composeStop(_composeFile: string, slug: string): Promise<string> {
+  async composeStop(_composeFile: string, slug: string, _callbacks?: StreamingCallbacks): Promise<string> {
     await nativeProcessManager.killAll(slug);
     return '服务器进程已停止';
   }
 
-  async composeRestart(composeFile: string, slug: string): Promise<string> {
+  async composeRestart(composeFile: string, slug: string, callbacks?: StreamingCallbacks): Promise<string> {
     await this.composeStop(composeFile, slug);
     await delay(1000);
     return await this.composeUp(composeFile, slug);
   }
 
-  async composeUpdate(_composeFile: string, _slug: string): Promise<string> {
+  async composeUpdate(_composeFile: string, _slug: string, _callbacks?: StreamingCallbacks): Promise<string> {
     return await this.installServer();
   }
 
