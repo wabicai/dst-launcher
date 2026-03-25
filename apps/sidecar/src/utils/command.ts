@@ -88,11 +88,11 @@ export function streamCommand(
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? '';
       for (const line of lines) {
-        if (line.trim()) callback(line);
+        callback(line);
       }
     });
     stream.on('end', () => {
-      if (buffer.trim()) callback(buffer);
+      if (buffer) callback(buffer);
     });
   };
 

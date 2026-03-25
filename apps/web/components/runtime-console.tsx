@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Activity, CheckCircle2, Copy, LoaderCircle } from 'lucide-react';
 import { useLogStream, type ConsoleLine, type StreamState } from '@/hooks/use-log-stream';
 import { Button } from './ui/button';
@@ -9,6 +9,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 export function RuntimeConsole({ projectId }: { projectId: string }) {
   const { lines, streamState } = useLogStream(projectId);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
+
+  // Track whether user has scrolled away from bottom
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      stickToBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+    };
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Auto-scroll to bottom when new lines arrive
+  useEffect(() => {
+    if (stickToBottomRef.current && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [lines]);
 
   const transcript = useMemo(() => {
     return lines.map((line) => `${new Date(line.timestamp).toLocaleTimeString()} [${line.source}] ${line.message}`).join('\n');

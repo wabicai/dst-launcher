@@ -161,6 +161,8 @@ export async function registerRoutes(
       return;
     }
 
+    // EventBus delivers system-level log events (e.g. from task execution).
+    // Docker container logs come exclusively from streamLogs() below to avoid duplicates.
     const unsubscribe = eventBus.subscribeLogs(projectId, (event) => {
       safeSocketSend(socket, event);
     });
@@ -188,7 +190,9 @@ export async function registerRoutes(
 
     socket.on('close', () => {
       unsubscribe();
-      child?.kill();
+      if (child && !child.killed) {
+        child.kill();
+      }
     });
   });
 }
