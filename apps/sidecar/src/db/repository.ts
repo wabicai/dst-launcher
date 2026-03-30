@@ -92,9 +92,16 @@ export class ProjectRepository {
     const targetId = createId('target');
     const configId = createId('cluster');
 
-    this.db.prepare('insert into targets (id, type, config_json, created_at, updated_at) values (?, ?, ?, ?, ?)').run(targetId, input.target.type, JSON.stringify(input.target), timestamp, timestamp);
-    this.db.prepare('insert into projects (id, name, slug, description, status, target_id, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)').run(projectId, input.name, input.slug, input.description, 'idle', targetId, timestamp, timestamp);
-    this.db.prepare('insert into cluster_configs (id, project_id, config_json, created_at, updated_at) values (?, ?, ?, ?, ?)').run(configId, projectId, JSON.stringify(clusterConfig), timestamp, timestamp);
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('insert into targets (id, type, config_json, created_at, updated_at) values (?, ?, ?, ?, ?)').run(targetId, input.target.type, JSON.stringify(input.target), timestamp, timestamp);
+      this.db.prepare('insert into projects (id, name, slug, description, status, target_id, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)').run(projectId, input.name, input.slug, input.description, 'idle', targetId, timestamp, timestamp);
+      this.db.prepare('insert into cluster_configs (id, project_id, config_json, created_at, updated_at) values (?, ?, ?, ?, ?)').run(configId, projectId, JSON.stringify(clusterConfig), timestamp, timestamp);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
 
     await this.syncProjectModEntriesFromClusterConfig(projectId, clusterConfig);
     return projectId;
@@ -105,9 +112,16 @@ export class ProjectRepository {
     const existingConfig = ClusterConfigSchema.parse(JSON.parse(existing.clusterConfig.configJson));
     const timestamp = now();
 
-    this.db.prepare('update projects set name = ?, description = ?, updated_at = ? where id = ?').run(input.name, input.description, timestamp, projectId);
-    this.db.prepare('update targets set type = ?, config_json = ?, updated_at = ? where id = ?').run(input.target.type, JSON.stringify(input.target), timestamp, existing.project.targetId);
-    this.db.prepare('update cluster_configs set config_json = ?, updated_at = ? where project_id = ?').run(JSON.stringify(input.clusterConfig), timestamp, projectId);
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('update projects set name = ?, description = ?, updated_at = ? where id = ?').run(input.name, input.description, timestamp, projectId);
+      this.db.prepare('update targets set type = ?, config_json = ?, updated_at = ? where id = ?').run(input.target.type, JSON.stringify(input.target), timestamp, existing.project.targetId);
+      this.db.prepare('update cluster_configs set config_json = ?, updated_at = ? where project_id = ?').run(JSON.stringify(input.clusterConfig), timestamp, projectId);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
 
     if (didRawModsChange(existingConfig, input.clusterConfig)) {
       await this.syncProjectModEntriesFromClusterConfig(projectId, input.clusterConfig);
@@ -161,6 +175,18 @@ export class ProjectRepository {
     this.db.prepare('update task_runs set status = ?, message = ?, updated_at = ? where id = ?').run(status, message, timestamp, taskId);
   }
 
+  /**
+   * Delete old task records, keeping the most recent N per project.
+   * Called after each action completes to prevent unbounded growth.
+   */
+  trimTasks(projectId: string, keep = 50) {
+    this.db.prepare(
+      `delete from task_runs where project_id = ? and id not in (
+        select id from task_runs where project_id = ? order by created_at desc limit ?
+      )`,
+    ).run(projectId, projectId, keep);
+  }
+
   async addBackup(projectId: string, filename: string, location: string, sizeBytes: number): Promise<BackupRecord> {
     const timestamp = now();
     const id = createId('backup');
@@ -180,6 +206,7 @@ export class ProjectRepository {
   }
 
   async upsertModCacheItems(items: ModCatalogItem[]) {
+    if (items.length === 0) return;
     const timestamp = now();
     const statement = this.db.prepare(
       `insert into mod_cache (
@@ -202,26 +229,33 @@ export class ProjectRepository {
         updated_at = excluded.updated_at`,
     );
 
-    for (const item of items) {
-      const parsed = ModCatalogItemSchema.parse(item);
-      const existing = this.db.prepare('select created_at as createdAt from mod_cache where workshop_id = ?').get(parsed.workshopId) as { createdAt: number } | undefined;
-      statement.run(
-        parsed.workshopId,
-        parsed.type,
-        parsed.title,
-        parsed.author,
-        parsed.description,
-        parsed.previewUrl,
-        parsed.sourceUrl,
-        JSON.stringify(parsed.tags),
-        toUnixTimestamp(parsed.updatedAt),
-        parsed.subscriptions,
-        parsed.favorited,
-        parsed.views,
-        JSON.stringify(parsed.collectionMemberIds),
-        existing?.createdAt ?? timestamp,
-        timestamp,
-      );
+    this.db.exec('BEGIN');
+    try {
+      for (const item of items) {
+        const parsed = ModCatalogItemSchema.parse(item);
+        const existing = this.db.prepare('select created_at as createdAt from mod_cache where workshop_id = ?').get(parsed.workshopId) as { createdAt: number } | undefined;
+        statement.run(
+          parsed.workshopId,
+          parsed.type,
+          parsed.title,
+          parsed.author,
+          parsed.description,
+          parsed.previewUrl,
+          parsed.sourceUrl,
+          JSON.stringify(parsed.tags),
+          toUnixTimestamp(parsed.updatedAt),
+          parsed.subscriptions,
+          parsed.favorited,
+          parsed.views,
+          JSON.stringify(parsed.collectionMemberIds),
+          existing?.createdAt ?? timestamp,
+          timestamp,
+        );
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
     }
   }
 
@@ -250,30 +284,37 @@ export class ProjectRepository {
     const normalizedEntries = await this.normalizeProjectModEntries(entries);
     const timestamp = now();
 
-    this.db.prepare('delete from project_mod_entries where project_id = ?').run(projectId);
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('delete from project_mod_entries where project_id = ?').run(projectId);
 
-    const statement = this.db.prepare(
-      `insert into project_mod_entries (
-        id, project_id, workshop_id, type, source, enabled, sort_order,
-        prefetch_state, prefetch_message, prefetched_at, created_at, updated_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-
-    for (const [index, entry] of normalizedEntries.entries()) {
-      statement.run(
-        createId('pmod'),
-        projectId,
-        entry.workshopId,
-        entry.type,
-        entry.source,
-        entry.enabled ? 1 : 0,
-        index,
-        'added',
-        '模组已加入项目，尚未预拉取。',
-        null,
-        timestamp,
-        timestamp,
+      const statement = this.db.prepare(
+        `insert into project_mod_entries (
+          id, project_id, workshop_id, type, source, enabled, sort_order,
+          prefetch_state, prefetch_message, prefetched_at, created_at, updated_at
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
+
+      for (const [index, entry] of normalizedEntries.entries()) {
+        statement.run(
+          createId('pmod'),
+          projectId,
+          entry.workshopId,
+          entry.type,
+          entry.source,
+          entry.enabled ? 1 : 0,
+          index,
+          'added',
+          '模组已加入项目，尚未预拉取。',
+          null,
+          timestamp,
+          timestamp,
+        );
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
     }
 
     await this.syncClusterConfigMods(projectId, detail.clusterConfig, normalizedEntries);
@@ -304,8 +345,6 @@ export class ProjectRepository {
     );
 
     const timestamp = now();
-    this.db.prepare('delete from project_mod_entries where project_id = ?').run(projectId);
-
     const statement = this.db.prepare(
       `insert into project_mod_entries (
         id, project_id, workshop_id, type, source, enabled, sort_order,
@@ -313,22 +352,30 @@ export class ProjectRepository {
       ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
-    for (const [index, entry] of entries.entries()) {
-      const parsed = ProjectModEntryInputSchema.parse(entry);
-      statement.run(
-        createId('pmod'),
-        projectId,
-        parsed.workshopId,
-        parsed.type,
-        parsed.source,
-        parsed.enabled ? 1 : 0,
-        index,
-        'added',
-        '模组已加入项目，尚未预拉取。',
-        null,
-        timestamp,
-        timestamp,
-      );
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('delete from project_mod_entries where project_id = ?').run(projectId);
+      for (const [index, entry] of entries.entries()) {
+        const parsed = ProjectModEntryInputSchema.parse(entry);
+        statement.run(
+          createId('pmod'),
+          projectId,
+          parsed.workshopId,
+          parsed.type,
+          parsed.source,
+          parsed.enabled ? 1 : 0,
+          index,
+          'added',
+          '模组已加入项目，尚未预拉取。',
+          null,
+          timestamp,
+          timestamp,
+        );
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
     }
   }
 

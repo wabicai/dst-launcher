@@ -1,5 +1,4 @@
-import { setTimeout as delay } from 'node:timers/promises';
-import { runStreamingCommand, streamCommand, runCommand } from '../utils/command';
+import { runCommand, streamCommand } from '../utils/command';
 import { parseComposePsOutput } from './compose-ps';
 import type { RuntimeAdapter, RuntimeContainerInfo, PortCheckResult, StreamingCallbacks } from './base';
 import type { LocalTargetConfig, ProjectNetwork, TargetConfig, TargetTestResponse } from '@dst-launcher/shared';
@@ -81,28 +80,93 @@ export class LocalDockerAdapter implements RuntimeAdapter {
       onStderr?: (line: string) => void;
     },
   ): Promise<string> {
+    // Stop all containers first to avoid conflicts (e.g. caves still running)
+    await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'stop'));
+
     const up = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'up', '-d', 'dst_master'));
     if (!up.ok) {
       throw new Error(up.stderr || '预拉取模组时启动维护容器失败');
     }
 
-    await delay(Number(process.env.DST_PREFETCH_WAIT_MS || '15000'));
-    const logs = await runStreamingCommand(
-      'docker',
-      this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'logs', '--tail', '120', 'dst_master'),
-      {},
-      callbacks,
-    );
-    const stop = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'stop', 'dst_master'));
+    // Stream logs and watch for mod download completion
+    const maxWaitMs = Number(process.env.DST_PREFETCH_MAX_WAIT_MS || '120000');
+    const idleTimeoutMs = Number(process.env.DST_PREFETCH_IDLE_MS || '10000');
+    await this.waitForModDownload(composeFile, slug, callbacks, maxWaitMs, idleTimeoutMs);
+
+    const stop = await runCommand('docker', this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'stop'));
     if (!stop.ok) {
-      throw new Error(stop.stderr || '预拉取完成后停止维护容器失败');
+      throw new Error(stop.stderr || '预拉取完成后停止容器失败');
     }
 
-    if (!logs.ok && logs.stderr.trim()) {
-      throw new Error(logs.stderr.trim());
-    }
+    return '模组预拉取任务完成';
+  }
 
-    return `${up.stdout}\n${logs.stdout}\n${stop.stdout}`.trim() || '模组预拉取任务完成';
+  /**
+   * Stream docker logs and detect when mod downloads are complete.
+   * Resolves when: (1) DST signals all mods downloaded, (2) idle timeout after
+   * last download activity, or (3) maximum wait time exceeded.
+   */
+  private async waitForModDownload(
+    composeFile: string,
+    slug: string,
+    callbacks: { onStdout?: (line: string) => void; onStderr?: (line: string) => void },
+    maxWaitMs: number,
+    idleTimeoutMs: number,
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      let hasSeenDownload = false;
+
+      const resetIdleTimer = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          cleanup();
+          resolve();
+        }, idleTimeoutMs);
+      };
+
+      const maxTimer = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, maxWaitMs);
+
+      const child = streamCommand(
+        'docker',
+        this.dockerArgs('compose', '-f', composeFile, '-p', slug, 'logs', '--follow', 'dst_master'),
+        {},
+        {
+          onStdout: (line) => {
+            callbacks.onStdout?.(line);
+            // Detect mod download activity
+            if (/Downloading mod|DownloadMod|workshop-/i.test(line)) {
+              hasSeenDownload = true;
+              resetIdleTimer();
+            }
+            // Detect completion signals
+            if (/DownloadMods\(0\)|There are 0 mods to download|Sim paused/i.test(line)) {
+              cleanup();
+              resolve();
+            }
+          },
+          onStderr: (line) => callbacks.onStderr?.(line),
+        },
+      );
+
+      // Start idle timer — if no download activity seen within idleTimeout, we're done
+      resetIdleTimer();
+
+      const cleanup = () => {
+        clearTimeout(maxTimer);
+        if (idleTimer) clearTimeout(idleTimer);
+        if (child.exitCode === null && !child.killed) child.kill();
+      };
+
+      child.on('close', () => {
+        clearTimeout(maxTimer);
+        if (idleTimer) clearTimeout(idleTimer);
+        resolve();
+      });
+    });
   }
 
   async checkPorts(_target: TargetConfig, ports: number[]): Promise<PortCheckResult> {

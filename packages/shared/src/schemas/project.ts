@@ -24,6 +24,9 @@ export const LocalTargetConfigSchema = z.object({
   dockerContext: z.string().default('desktop-linux'),
 });
 
+// Allow ~/path, /absolute/path, alphanumeric, dots, dashes, underscores
+const safeRemotePathPattern = /^[a-zA-Z0-9._~/ -]*$/;
+
 export const SshTargetConfigSchema = z.object({
   type: z.literal('ssh'),
   host: z.string().min(1, '远程主机不能为空').regex(/^[a-zA-Z0-9._:-]+$/, '主机名格式不合法'),
@@ -33,7 +36,10 @@ export const SshTargetConfigSchema = z.object({
     (v) => /^[a-zA-Z0-9._~/ -]+$/.test(v) && !v.includes('..'),
     '私钥路径含有不安全字符',
   ),
-  remotePath: z.string().default(createRemoteDeployPath(DEFAULT_PROJECT_SLUG)),
+  remotePath: z.string().default(createRemoteDeployPath(DEFAULT_PROJECT_SLUG)).refine(
+    (v) => !v.includes('..') && safeRemotePathPattern.test(v),
+    '远程路径含有不安全字符',
+  ),
   dockerContext: z.string().optional(),
 });
 

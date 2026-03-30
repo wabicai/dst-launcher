@@ -83,6 +83,12 @@ export class NativeAdapter implements RuntimeAdapter {
       throw new Error('DST 服务端未安装，请先执行「安装/更新服务器」');
     }
 
+    // Kill any leftover processes from a previous run to prevent leaks
+    if (nativeProcessManager.isRunning(slug, 'master') || nativeProcessManager.isRunning(slug, 'caves')) {
+      await nativeProcessManager.killAll(slug);
+      await delay(500);
+    }
+
     // Write worldgenoverride.lua for Caves if not present
     const cavesWorldgen = path.join(this.instancePaths.clusterDir, 'Caves', 'worldgenoverride.lua');
     if (!existsSync(cavesWorldgen)) {
@@ -123,8 +129,18 @@ export class NativeAdapter implements RuntimeAdapter {
     return await this.composeUp(composeFile, slug);
   }
 
-  async composeUpdate(_composeFile: string, _slug: string, _callbacks?: StreamingCallbacks): Promise<string> {
-    return await this.installServer();
+  async composeUpdate(composeFile: string, slug: string, _callbacks?: StreamingCallbacks): Promise<string> {
+    const wasRunning = nativeProcessManager.isRunning(slug, 'master');
+    if (wasRunning) {
+      await this.composeStop(composeFile, slug);
+      await delay(1000);
+    }
+    const installMsg = await this.installServer();
+    if (wasRunning) {
+      const startMsg = await this.composeUp(composeFile, slug);
+      return `${installMsg}\n${startMsg}`;
+    }
+    return installMsg;
   }
 
   async composePs(_composeFile: string, slug: string): Promise<RuntimeContainerInfo[]> {
@@ -196,18 +212,60 @@ export class NativeAdapter implements RuntimeAdapter {
 
     const dataDir = this.instancePaths.dataDir;
     const binary = this.instancePaths.nativeBinary;
-    const waitMs = Number(process.env.DST_PREFETCH_WAIT_MS || '15000');
+    const maxWaitMs = Number(process.env.DST_PREFETCH_MAX_WAIT_MS || '120000');
+    const idleTimeoutMs = Number(process.env.DST_PREFETCH_IDLE_MS || '10000');
 
-    // Start only Master for mod downloads, then kill after timeout
+    // Start only Master for mod downloads
     const child = streamCommand(
       binary,
       ['-persistent_storage_root', dataDir, '-conf_dir', 'cluster', '-cluster', '.', '-shard', 'Master'],
       {},
-      callbacks,
     );
 
-    // Wait for mods to download
-    await delay(Math.max(5000, waitMs));
+    // Watch logs for mod download completion
+    await new Promise<void>((resolve) => {
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      let resolved = false;
+
+      const done = () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(maxTimer);
+        if (idleTimer) clearTimeout(idleTimer);
+        resolve();
+      };
+
+      const resetIdleTimer = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(done, idleTimeoutMs);
+      };
+
+      const maxTimer = setTimeout(done, maxWaitMs);
+
+      const onData = (chunk: Buffer) => {
+        const text = chunk.toString();
+        for (const line of text.split(/\r?\n/)) {
+          if (!line.trim()) continue;
+          callbacks.onStdout?.(line);
+          if (/Downloading mod|DownloadMod|workshop-/i.test(line)) {
+            resetIdleTimer();
+          }
+          if (/DownloadMods\(0\)|There are 0 mods to download|Sim paused/i.test(line)) {
+            done();
+          }
+        }
+      };
+      const onErrData = (chunk: Buffer) => {
+        callbacks.onStderr?.(chunk.toString().trim());
+      };
+
+      child.stdout?.on('data', onData);
+      child.stderr?.on('data', onErrData);
+      child.on('close', done);
+
+      // Start idle timer
+      resetIdleTimer();
+    });
 
     // Kill the server process
     if (child.exitCode === null && !child.killed) {

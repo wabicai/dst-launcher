@@ -62,7 +62,8 @@ try {
   assert.equal(projectDetail.slug, 'smoke-runtime-project');
   assert.equal(projectDetail.target.type, 'local');
   assert.equal(projectDetail.network.status, 'not_applicable');
-  assert.deepEqual(projectDetail.network.requiredUdpPorts.sort((left, right) => left - right), [8768, 8769, 10999, 11000, 12346, 12347]);
+  // Docker (local) targets use fixed ports from the wollwolke/dst-dedicated-server image
+  assert.deepEqual(projectDetail.network.requiredUdpPorts.sort((left, right) => left - right), [8766, 8767, 10999, 11000, 27016, 27017]);
 
   console.log('sidecar smoke test passed');
 } finally {

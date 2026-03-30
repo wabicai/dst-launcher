@@ -3,10 +3,13 @@ import type { ClusterConfig } from '../schemas/project';
 export interface ComposeGenerationInput {
   slug: string;
   clusterConfig: ClusterConfig;
+  /** When true, the launcher.sh entrypoint skips the SteamCMD app_update step. */
+  skipUpdate?: boolean;
 }
 
 export function renderComposeFile(input: ComposeGenerationInput): string {
-  const { slug, clusterConfig } = input;
+  const { slug, clusterConfig, skipUpdate = true } = input;
+  const skipUpdateValue = skipUpdate ? '1' : '0';
 
   return `name: ${slug}
 services:
@@ -34,6 +37,7 @@ services:
       SHARD_IS_MASTER: true
       KEEP_CLUSTER_CONFIG: true
       CPU_MHZ: 1000
+      SKIP_UPDATE: "${skipUpdateValue}"
     ports:
       - '11000:11000/udp'
       - '27016:27016/udp'
@@ -78,6 +82,7 @@ services:
       SHARD_IS_MASTER: false
       KEEP_CLUSTER_CONFIG: true
       CPU_MHZ: 1000
+      SKIP_UPDATE: "${skipUpdateValue}"
     ports:
       - '10999:10999/udp'
       - '27017:27016/udp'

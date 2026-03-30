@@ -238,13 +238,18 @@ export class SshDockerAdapter implements RuntimeAdapter {
     const remoteComposeFile = this.resolveRemoteComposePath(composeFile);
     const remoteComposeDir = path.posix.dirname(remoteComposeFile);
     const relativeFile = path.posix.basename(remoteComposeFile);
-    const waitSeconds = Math.max(5, Math.floor(Number(process.env.DST_PREFETCH_WAIT_MS || '15000') / 1000));
+    const maxWaitSeconds = Math.max(10, Math.floor(Number(process.env.DST_PREFETCH_MAX_WAIT_MS || '120000') / 1000));
+    const idleSeconds = Math.max(5, Math.floor(Number(process.env.DST_PREFETCH_IDLE_MS || '10000') / 1000));
+
+    // Stop all containers first, then start only master for mod download.
+    // Use a log-monitoring script that exits on completion signals or idle timeout.
     const command = [
       `cd ${shellPath(remoteComposeDir)}`,
+      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} stop`,
       `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} up -d dst_master`,
-      `sleep ${waitSeconds}`,
-      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} logs --tail 120 dst_master`,
-      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} stop dst_master`,
+      // Monitor logs: exit when mods are done or after idle timeout
+      `timeout ${maxWaitSeconds} sh -c 'docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} logs --follow dst_master 2>&1 | while IFS= read -r line; do echo "$line"; case "$line" in *"DownloadMods(0)"*|*"There are 0 mods to download"*|*"Sim paused"*) kill \\$\\$ 2>/dev/null; break;; esac; done' || true`,
+      `docker compose -f ${shellEscape(relativeFile)} -p ${shellEscape(slug)} stop`,
     ].join(' && ');
 
     const result = await runStreamingCommand('ssh', this.sshArgs(command), {}, callbacks);

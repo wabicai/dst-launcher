@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import {
   ClusterConfigSchema,
   ModImportRequestSchema,
@@ -32,6 +32,7 @@ import { ProjectRepository } from '../db/repository';
 import { EventBus } from './event-bus';
 import { resolveInstancePaths, type AppPaths } from '../utils/paths';
 import { runCommand } from '../utils/command';
+import { withProjectLock } from '../utils/action-lock';
 import type { RuntimeAdapter } from '../adapters/base';
 import { LocalDockerAdapter } from '../adapters/local-docker';
 import { SshDockerAdapter } from '../adapters/ssh-docker';
@@ -55,35 +56,37 @@ MAGIC_RESTART=42
 MAX_RETRIES=5
 RETRY_DELAY=10
 
-echo "[DST Launcher] Starting SteamCMD update..."
+# Run SteamCMD with retry logic (skip entirely if SKIP_UPDATE=1)
+if [ "\${SKIP_UPDATE:-0}" != "1" ]; then
+  echo "[DST Launcher] Starting SteamCMD update..."
 
-# Retry loop — SteamCMD can fail transiently (DNS not ready, network blip, etc.)
-for attempt in \$(seq 1 \$MAX_RETRIES); do
-  echo "[DST Launcher] SteamCMD attempt \$attempt/\$MAX_RETRIES"
+  for attempt in \$(seq 1 \$MAX_RETRIES); do
+    echo "[DST Launcher] SteamCMD attempt \$attempt/\$MAX_RETRIES"
 
-  # Inner loop handles MAGIC_RESTART (exit code 42 = SteamCMD self-update)
-  while true; do
-    \$STEAMCMD +@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1 \\
-      +force_install_dir /home/dst/dst_server +login anonymous +app_update 343050 +quit
-    STATUS=\$?
-    echo "[DST Launcher] SteamCMD exited with status \$STATUS"
-    [ \$STATUS -ne \$MAGIC_RESTART ] && break
-    echo "[DST Launcher] SteamCMD requested restart (self-update), restarting..."
+    while true; do
+      \$STEAMCMD +@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1 \\
+        +force_install_dir /home/dst/dst_server +login anonymous +app_update 343050 +quit
+      STATUS=\$?
+      echo "[DST Launcher] SteamCMD exited with status \$STATUS"
+      [ \$STATUS -ne \$MAGIC_RESTART ] && break
+      echo "[DST Launcher] SteamCMD requested restart (self-update), restarting..."
+    done
+
+    if [ -d /home/dst/dst_server/bin ]; then
+      echo "[DST Launcher] DST server downloaded successfully."
+      break
+    fi
+
+    echo "[DST Launcher] ERROR: /home/dst/dst_server/bin not found (attempt \$attempt/\$MAX_RETRIES)"
+    if [ \$attempt -lt \$MAX_RETRIES ]; then
+      echo "[DST Launcher] Retrying in \${RETRY_DELAY}s..."
+      sleep \$RETRY_DELAY
+      RETRY_DELAY=\$((RETRY_DELAY * 2))
+    fi
   done
-
-  # Verify the game was actually downloaded
-  if [ -d /home/dst/dst_server/bin ]; then
-    echo "[DST Launcher] DST server downloaded successfully."
-    break
-  fi
-
-  echo "[DST Launcher] ERROR: /home/dst/dst_server/bin not found (attempt \$attempt/\$MAX_RETRIES)"
-  if [ \$attempt -lt \$MAX_RETRIES ]; then
-    echo "[DST Launcher] Retrying in \${RETRY_DELAY}s..."
-    sleep \$RETRY_DELAY
-    RETRY_DELAY=\$((RETRY_DELAY * 2))
-  fi
-done
+else
+  echo "[DST Launcher] SKIP_UPDATE=1, skipping SteamCMD update."
+fi
 
 # If download still failed after all retries, exit so Docker can restart us (with backoff)
 if [ ! -d /home/dst/dst_server/bin ]; then
@@ -228,6 +231,10 @@ export class ProjectService {
   }
 
   async runAction(projectId: string, action: ProjectAction) {
+    return withProjectLock(projectId, () => this.executeAction(projectId, action));
+  }
+
+  private async executeAction(projectId: string, action: ProjectAction) {
     const project = await this.repository.getProjectDetail(projectId);
     const adapter = this.createAdapter(project.target, project.slug);
     const task = await this.repository.createTask(projectId, action, `开始执行 ${action}`);
@@ -299,16 +306,22 @@ export class ProjectService {
           await this.prepareProjectFiles(projectId);
           await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
           const cf = project.target.type === 'native' ? '' : paths.composeFile;
-          message = await adapter.composeRestart(cf, project.slug, logCallbacks);
+          // Use stop + up instead of restart so the compose file changes
+          // (e.g. SKIP_UPDATE, config updates) are picked up by new containers.
+          await adapter.composeStop(cf, project.slug, logCallbacks);
+          message = await adapter.composeUp(cf, project.slug, logCallbacks);
           await this.repository.setProjectStatus(projectId, 'running');
           break;
         }
         case 'update': {
-          await this.prepareProjectFiles(projectId);
+          await this.prepareProjectFiles(projectId, { skipUpdate: false });
           await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
           const cf = project.target.type === 'native' ? '' : paths.composeFile;
           message = await adapter.composeUpdate(cf, project.slug, logCallbacks);
-          await this.repository.setProjectStatus(projectId, 'running');
+          // Check actual runtime state — native update may not restart if server wasn't running
+          const postUpdateRuntime = await this.getRuntime(project.target, project.slug, cf || null);
+          const isRunning = postUpdateRuntime.containers.some((c) => c.state === 'running');
+          await this.repository.setProjectStatus(projectId, isRunning ? 'running' : 'stopped');
           break;
         }
         case 'backup': {
@@ -401,8 +414,8 @@ export class ProjectService {
           // Restart server
           await this.prepareProjectFiles(projectId);
           await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
-          message = await adapter.composeUp(cf, project.slug, logCallbacks);
-          message = '世界已重置并重新启动。';
+          const upMsg = await adapter.composeUp(cf, project.slug, logCallbacks);
+          message = joinMessages('世界已重置并重新启动。', upMsg);
           await this.repository.setProjectStatus(projectId, 'running');
           break;
         }
@@ -415,9 +428,13 @@ export class ProjectService {
 
           await this.prepareProjectFiles(projectId);
           await this.syncIfNeeded(project.target, paths.root, adapter, logCallbacks);
-          const runtime = await this.getRuntime(project.target, project.slug, paths.composeFile);
-          if (runtime.containers.some((item) => item.state === 'running')) {
-            throw new Error('项目当前正在运行，请先停止服务，再执行模组预拉取。');
+
+          // Adapters handle stopping running containers internally before prefetch.
+          // For native mode, stop processes explicitly since native adapter prefetch
+          // doesn't call composeStop.
+          if (project.target.type === 'native') {
+            const nativeCf = '';
+            await adapter.composeStop(nativeCf, project.slug);
           }
 
           this.publishTaskProgress(projectId, task.id, action, '开始执行模组预拉取，日志会同步写入工作台。');
@@ -459,6 +476,7 @@ export class ProjectService {
         stream: 'system',
         timestamp: new Date().toISOString(),
       });
+      this.repository.trimTasks(projectId);
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知错误';
@@ -466,7 +484,17 @@ export class ProjectService {
         await this.repository.markProjectModsPrefetch(projectId, 'failed', message);
       }
       await this.repository.updateTask(task.id, 'failed', message);
-      await this.repository.setProjectStatus(projectId, 'error');
+
+      // Only set project to 'error' for state-changing actions.
+      // Read-only actions (backup, check-ports, etc.) should not corrupt project status.
+      const stateChangingActions: Set<ProjectAction> = new Set([
+        'start', 'stop', 'restart', 'update', 'reset-world', 'deploy',
+        'install-server', 'prefetch-mods',
+      ]);
+      if (stateChangingActions.has(action)) {
+        await this.repository.setProjectStatus(projectId, 'error');
+      }
+
       this.eventBus.publishTask({
         type: 'task.failed',
         projectId,
@@ -475,10 +503,11 @@ export class ProjectService {
         message,
         timestamp: new Date().toISOString(),
       });
+      const currentStatus = (await this.repository.getProjectDetail(projectId)).status;
       this.eventBus.publishTask({
         type: 'status.changed',
         projectId,
-        status: 'error',
+        status: currentStatus,
         timestamp: new Date().toISOString(),
       });
       throw error;
@@ -496,7 +525,7 @@ export class ProjectService {
     });
   }
 
-  private async prepareProjectFiles(projectId: string) {
+  private async prepareProjectFiles(projectId: string, options?: { skipUpdate?: boolean }) {
     const detail = await this.repository.getProjectDetail(projectId);
     const paths = resolveInstancePaths(this.paths.instancesDir, detail.slug);
     await fs.mkdir(paths.configDir, { recursive: true });
@@ -517,7 +546,10 @@ export class ProjectService {
       // Native mode: config files go directly in clusterDir (server uses -cluster .)
       await fs.mkdir(path.join(paths.clusterDir, 'Master'), { recursive: true });
       await fs.mkdir(path.join(paths.clusterDir, 'Caves'), { recursive: true });
-      await writeClusterRuntimeFiles(paths.clusterDir, preview);
+      // Skip worldgenoverride.lua for shards that already have save data —
+      // DST only reads it during initial world creation; overwriting it is misleading.
+      const skipFiles = buildWorldgenSkipSet(paths.clusterDir);
+      await writeClusterRuntimeFiles(paths.clusterDir, preview, skipFiles);
       // Native mode: dedicated_server_mods_setup.lua goes in the server's mods/ directory
       const modsDir = path.join(paths.nativeServerDir, 'mods');
       await fs.mkdir(modsDir, { recursive: true });
@@ -533,7 +565,8 @@ export class ProjectService {
       const dockerClusterDir = path.join(paths.clusterDir, detail.clusterConfig.clusterName);
       await fs.mkdir(path.join(dockerClusterDir, 'Master'), { recursive: true });
       await fs.mkdir(path.join(dockerClusterDir, 'Caves'), { recursive: true });
-      await writeClusterRuntimeFiles(dockerClusterDir, preview);
+      const skipFiles = buildWorldgenSkipSet(dockerClusterDir);
+      await writeClusterRuntimeFiles(dockerClusterDir, preview, skipFiles);
       // dedicated_server_mods_setup.lua → /home/dst/dst_server/mods/ (volume: ../data/server)
       const dockerModsDir = path.join(paths.serverDir, 'mods');
       await fs.mkdir(dockerModsDir, { recursive: true });
@@ -551,6 +584,7 @@ export class ProjectService {
       const compose = renderComposeFile({
         slug: detail.slug,
         clusterConfig: detail.clusterConfig,
+        skipUpdate: options?.skipUpdate ?? true,
       });
       await fs.writeFile(paths.composeFile, compose, 'utf8');
       await this.repository.upsertDeployment(
@@ -610,6 +644,13 @@ export class ProjectService {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `${detail.slug}-${timestamp}.tar.gz`;
 
+    // Warn if server is running — backup may contain inconsistent data
+    const adapter = this.createAdapter(detail.target, detail.slug);
+    const composePath = detail.deployment?.composePath ?? null;
+    const runtime = await this.getRuntime(detail.target, detail.slug, composePath);
+    const serverRunning = runtime.containers.some((c) => c.state === 'running');
+    const runningWarning = serverRunning ? '⚠ 服务器正在运行中，备份数据可能不一致。建议先停服再备份。\n' : '';
+
     if (detail.target.type === 'ssh') {
       const backupDir = path.posix.join(detail.target.remotePath, 'backups');
       const remoteFile = path.posix.join(backupDir, filename);
@@ -619,25 +660,25 @@ export class ProjectService {
       }
       await adapter.createRemoteBackup(detail.target.remotePath, remoteFile);
       await this.repository.addBackup(projectId, filename, remoteFile, 0);
-      return `远程备份已创建：${remoteFile}`;
+      return `${runningWarning}远程备份已创建：${remoteFile}`;
     }
 
     const backupFile = path.join(paths.backupsDir, filename);
     await fs.mkdir(paths.backupsDir, { recursive: true });
-    await fs.cp(paths.dataDir, path.join(paths.backupsDir, `${detail.slug}-snapshot`), {
-      recursive: true,
-      force: true,
-    });
+    // Tar directly from data dir — avoids doubling disk usage with a snapshot copy.
+    // Note: if the server is writing concurrently, files may be inconsistent.
+    // For a fully consistent backup, stop the server first.
     const { runCommand } = await import('../utils/command');
     const result = await runCommand('tar', ['-czf', backupFile, '-C', paths.root, 'data']);
-    await fs.rm(path.join(paths.backupsDir, `${detail.slug}-snapshot`), { recursive: true, force: true });
     if (!result.ok) {
+      // Clean up incomplete archive
+      await fs.rm(backupFile, { force: true });
       throw new Error(result.stderr || '本地备份失败');
     }
     const sizeBytes = statSync(backupFile).size;
     await this.repository.addBackup(projectId, filename, backupFile, sizeBytes);
     await this.trimBackups(projectId, paths.backupsDir);
-    return `本地备份已创建：${backupFile}`;
+    return `${runningWarning}本地备份已创建：${backupFile}`;
   }
 
   private async trimBackups(projectId: string, backupsDir: string) {
@@ -645,10 +686,11 @@ export class ProjectService {
     for (const record of records.slice(10)) {
       try {
         await fs.rm(path.join(backupsDir, record.filename), { force: true });
+        // Only remove DB record if file deletion succeeded
+        await this.repository.removeBackupRecord(record.id);
       } catch {
-        // 忽略磁盘删除失败，继续清理数据库记录
+        // If file deletion fails, keep the DB record so we can retry later
       }
-      await this.repository.removeBackupRecord(record.id);
     }
   }
 
@@ -695,6 +737,7 @@ async function writeRenderedFiles(
 async function writeClusterRuntimeFiles(
   clusterDir: string,
   preview: Record<string, string>,
+  skipFiles?: Set<string>,
 ) {
   const mappings: Record<string, string> = {
     'cluster.ini': path.join(clusterDir, 'cluster.ini'),
@@ -707,6 +750,7 @@ async function writeClusterRuntimeFiles(
   };
 
   for (const [source, target] of Object.entries(mappings)) {
+    if (skipFiles?.has(source)) continue;
     const content = preview[source];
     if (typeof content !== 'string') {
       continue;
@@ -714,6 +758,18 @@ async function writeClusterRuntimeFiles(
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, content, 'utf8');
   }
+}
+
+/** Skip worldgenoverride.lua for shards that already have save data. */
+function buildWorldgenSkipSet(clusterDir: string): Set<string> {
+  const skip = new Set<string>();
+  if (existsSync(path.join(clusterDir, 'Master', 'save'))) {
+    skip.add('Master/worldgenoverride.lua');
+  }
+  if (existsSync(path.join(clusterDir, 'Caves', 'save'))) {
+    skip.add('Caves/worldgenoverride.lua');
+  }
+  return skip;
 }
 
 function normalizeTarget(target: TargetConfig, slug: string): TargetConfig {
